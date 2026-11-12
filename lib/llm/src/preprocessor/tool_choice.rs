@@ -11,8 +11,8 @@ use crate::preprocessor::structural_tag::{
     SelectedStructuralTagBuilder, requires_native_tool_call_format,
 };
 use crate::preprocessor::{OpenAIPreprocessor, PreprocessedRequest, PromptReasoningPrefill};
-use crate::protocols::openai::chat_completions::{NvCreateChatCompletionRequest, unified_parser};
 use crate::protocols::openai::chat_completions::tool_parser_v2::is_beam_parser;
+use crate::protocols::openai::chat_completions::{NvCreateChatCompletionRequest, unified_parser};
 use crate::protocols::openai::common_ext::CommonExtProvider;
 use crate::protocols::openai::tools::{
     ToolChoiceGuidance, convert_tools, get_tool_choice_guidance_from_tools,
