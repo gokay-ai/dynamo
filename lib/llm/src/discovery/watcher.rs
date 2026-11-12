@@ -27,6 +27,7 @@ use crate::{
     discovery::{LoadThresholdHandle, WORKER_TYPE_DECODE, WorkerSet},
     entrypoint::{self, ChatEngineFactoryCallback},
     http::service::metrics::Metrics,
+    json::canonicalize_json_object_keys,
     kv_router::plugins::RouterPluginBuilder,
     kv_router::{EncoderRouter, PrefillRouter, RouterLoadSource, RoutingLoadContext, role_routing},
     local_model::runtime_config::{
@@ -59,7 +60,6 @@ use crate::{
     },
     router_config::RouterConfig,
     types::generic::realtime::{DynamoRealtimeClientEvent, RealtimeServerEvent},
-    utils::json::canonicalize_json_object_keys,
     worker_type::WorkerType,
 };
 
@@ -1728,7 +1728,7 @@ mod tests {
         card.model_type = ModelType::Chat;
         card.runtime_config.tool_call_parser = Some("mistral".to_string());
         card.tokenizer = Some(crate::model_card::TokenizerKind::TekkenJson(
-            crate::common::checked_file::CheckedFile::from_disk(&path)?,
+            crate::checked_file::CheckedFile::from_disk(&path)?,
         ));
         let mut tokenizer = None;
         check_unified_family_tokens(&card, &mut tokenizer)?;
