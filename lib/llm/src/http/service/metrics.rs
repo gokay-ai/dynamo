@@ -153,7 +153,7 @@ pub use prometheus::Registry;
 use super::RouteDoc;
 
 /// Worker type label values for Prometheus timing metrics
-pub use crate::discovery::{WORKER_TYPE_DECODE, WORKER_TYPE_PREFILL};
+use crate::protocols::common::timing::{WORKER_TYPE_DECODE, WORKER_TYPE_PREFILL};
 pub(crate) const UNSET_DP_RANK_LABEL: &str = "none";
 const LOCAL_FLUSH_TOKENS: u64 = 64;
 
@@ -3055,7 +3055,9 @@ pub fn process_response_using_event_converter_and_observe_metrics<T: Serialize>(
 
     // ANNOTATION_PAYLOAD_USAGE is payload-only and must never reach the client SSE
     // stream (the payload DeltaAggregator consumed its usage upstream).
-    if annotated.event.as_deref() == Some(crate::preprocessor::ANNOTATION_PAYLOAD_USAGE) {
+    if annotated.event.as_deref()
+        == Some(crate::protocols::common::metrics::ANNOTATION_PAYLOAD_USAGE)
+    {
         annotated.event = None;
         annotated.comment = None;
         annotated.data = None;
@@ -3098,7 +3100,9 @@ pub fn process_chat_response_using_event_converter_and_observe_metrics(
     // ANNOTATION_PAYLOAD_USAGE is payload-only: the payload DeltaAggregator already
     // consumed its usage upstream, so strip the whole chunk; it must never
     // reach the client SSE stream.
-    if annotated.event.as_deref() == Some(crate::preprocessor::ANNOTATION_PAYLOAD_USAGE) {
+    if annotated.event.as_deref()
+        == Some(crate::protocols::common::metrics::ANNOTATION_PAYLOAD_USAGE)
+    {
         annotated.event = None;
         annotated.comment = None;
         annotated.data = None;
@@ -4656,7 +4660,7 @@ mod tests {
 
     #[test]
     fn test_metrics_annotation_event_handling() {
-        use crate::preprocessor::LLMMetricAnnotation;
+        use crate::protocols::common::metrics::LLMMetricAnnotation;
         use crate::types::Annotated;
 
         let metrics = Arc::new(Metrics::new());
@@ -4674,7 +4678,7 @@ mod tests {
         > {
             id: None,
             data: None,
-            event: Some(crate::preprocessor::ANNOTATION_LLM_METRICS.to_string()),
+            event: Some(crate::protocols::common::metrics::ANNOTATION_LLM_METRICS.to_string()),
             comment: None,
             error: None,
         };
@@ -4767,7 +4771,8 @@ mod tests {
         //     must reach the client, but the metrics event/comment must be stripped.
         // (2) The payload-only `payload_usage` chunk must be dropped entirely (the payload
         //     DeltaAggregator already consumed its usage upstream).
-        use crate::preprocessor::{ANNOTATION_PAYLOAD_USAGE, LLMMetricAnnotation};
+        use crate::protocols::common::metrics::ANNOTATION_PAYLOAD_USAGE;
+        use crate::protocols::common::metrics::LLMMetricAnnotation;
         use crate::types::Annotated;
         use axum::response::IntoResponse;
         use axum::response::sse::Sse;
@@ -4807,7 +4812,7 @@ mod tests {
         let per_chunk = Annotated {
             id: None,
             data: Some(content),
-            event: Some(crate::preprocessor::ANNOTATION_LLM_METRICS.to_string()),
+            event: Some(crate::protocols::common::metrics::ANNOTATION_LLM_METRICS.to_string()),
             comment: metrics_comment.clone(),
             error: None,
         };
@@ -5051,7 +5056,7 @@ mod tests {
 
     #[test]
     fn test_non_streaming_path_observes_cached_tokens() {
-        use crate::preprocessor::LLMMetricAnnotation;
+        use crate::protocols::common::metrics::LLMMetricAnnotation;
         use crate::types::Annotated;
 
         let metrics = Arc::new(Metrics::new());
@@ -5069,7 +5074,7 @@ mod tests {
         > {
             id: None,
             data: None,
-            event: Some(crate::preprocessor::ANNOTATION_LLM_METRICS.to_string()),
+            event: Some(crate::protocols::common::metrics::ANNOTATION_LLM_METRICS.to_string()),
             comment: None,
             error: None,
         };

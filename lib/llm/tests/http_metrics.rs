@@ -6,7 +6,7 @@ use async_stream::stream;
 use dynamo_llm::{
     discovery::UNKNOWN_METRIC_MODEL,
     http::service::{metrics::Endpoint, service_v2::HttpService},
-    preprocessor::LLMMetricAnnotation,
+    protocols::common::metrics::LLMMetricAnnotation,
     protocols::{
         Annotated,
         openai::chat_completions::{
