@@ -126,11 +126,16 @@ letter-leading name when it produces a Service. See the
 and [DCD name limits](https://github.com/ai-dynamo/dynamo/blob/main/docs/fern/pages/reference/kubernetes-api/dynamo-component-deployment.mdx#generated-name-limits).
 
 **Existing deployments:** An identical existing failure remains editable when the old resources can
-be rendered, and deletion is supported. If component rendering itself fails, spec and annotation
-changes are rejected; label maintenance remains possible. Repairing an unrenderable graph requires
-valid generated names because old identities cannot be compared.
+be rendered. On the Component and DisaggregatedSet paths, failed normalization into DCD inputs rejects
+spec and annotation changes; label maintenance remains possible. Grove admission does not perform
+that normalization check. Repairing an unrenderable graph requires valid generated names because
+old identities cannot be compared.
 Operator-authenticated DGD-child writes retain the exemption needed for legacy rollouts; removing
-that ownership rechecks exempt names. Creating a replacement object requires a valid name.
+or replacing that ownership rechecks exempt names. Direct DCD deletion and foreground or background
+cascading DGD deletion remain supported. Orphan deletion (`kubectl delete --cascade=orphan`) can be
+blocked when removing a legacy child's owner reference exposes an invalid identity; use cascading
+deletion, or repair or remove the affected children before orphaning. Creating a replacement object
+requires a valid name.
 
 #### Operator behavior breaking changes
 

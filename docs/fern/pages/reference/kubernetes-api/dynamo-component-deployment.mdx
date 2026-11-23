@@ -49,10 +49,17 @@ as `model.v1` also needs an explicit valid `spec.name`, because defaulting other
 `metadata.name` into that field. LeaderWorkerSet headless Services and enabled legacy Ingress
 backends are checked even with etcd discovery.
 
+For `v1alpha1` DCDs, the original `spec.serviceName` also becomes the `nvidia.com/dynamo-component`
+label. Its value must be a Kubernetes label value of at most 63 characters. ASCII uppercase letters
+and dots remain valid where the selected workload renders them; non-ASCII characters are rejected.
+
 Updates preserve an identical existing naming failure. Enabling a Service or changing the workload
 shape can introduce a new failure, which is rejected. Authenticated operator writes may retain
-legacy names for DGD-owned children so existing graphs can roll out. Removing the DGD owner rechecks
-names that were exempt. Deletion remains supported.
+legacy names for DGD-owned children so existing graphs can roll out. Removing or replacing the DGD owner rechecks
+names that were exempt. Direct DCD deletion and foreground or background cascading DGD deletion
+remain supported. Orphaning a graph (`kubectl delete --cascade=orphan`) removes its child owner
+references and can be blocked by a legacy child's invalid identity. Use cascading deletion, or repair
+or remove affected children before orphaning the graph.
 
 ## Spec reference
 
