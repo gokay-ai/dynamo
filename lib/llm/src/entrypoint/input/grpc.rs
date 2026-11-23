@@ -11,9 +11,9 @@ use crate::{
     grpc::service::kserve,
     http::service::metrics::Metrics,
     namespace::NamespaceFilter,
-    types::openai::chat_completions::{
-        NvCreateChatCompletionRequest, NvCreateChatCompletionStreamResponse,
-    },
+};
+use dynamo_frontend_protocols::types::openai::chat_completions::{
+    NvCreateChatCompletionRequest, NvCreateChatCompletionStreamResponse,
 };
 use dynamo_model_card::{
     local_model::runtime_config::TokenizerBackend, router_config::RouterConfig,

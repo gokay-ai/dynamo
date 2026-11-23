@@ -17,7 +17,7 @@ use tracing::Instrument;
 use super::PrefillError;
 use crate::http::service::metrics::request_deadline_exceeded;
 use crate::kv_router::UnknownPolicyClassRefusal;
-use crate::protocols::{
+use dynamo_frontend_protocols::{
     common::llm_backend::{FinishReason, LLMEngineOutput},
     response_merge::{PREFILL_OUTPUT_ANNOTATION, PrefillNeed},
 };

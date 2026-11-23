@@ -31,7 +31,7 @@ use std::{
 
 use crate::discovery::{ModelManager, UNKNOWN_METRIC_MODEL};
 use crate::frontend_load::{FrontendLoadFrame, FrontendModelLoad, RequestGauges, RequestTotals};
-use crate::protocols::{
+use dynamo_frontend_protocols::{
     common::metrics::{ANNOTATION_LLM_METRICS, LLMMetricAnnotation},
     openai::chat_completions::NvCreateChatCompletionStreamResponse,
 };
@@ -153,7 +153,7 @@ pub use prometheus::Registry;
 use super::RouteDoc;
 
 /// Worker type label values for Prometheus timing metrics
-use crate::protocols::common::timing::{WORKER_TYPE_DECODE, WORKER_TYPE_PREFILL};
+use dynamo_frontend_protocols::common::timing::{WORKER_TYPE_DECODE, WORKER_TYPE_PREFILL};
 pub(crate) const UNSET_DP_RANK_LABEL: &str = "none";
 const LOCAL_FLUSH_TOKENS: u64 = 64;
 
@@ -2903,7 +2903,7 @@ impl Drop for ResponseMetricCollector {
 /// It observes the current output sequence length, drops the http_queue_guard on the first token,
 /// and records response metrics.
 pub fn process_response_and_observe_metrics<T>(
-    annotated: &crate::types::Annotated<T>,
+    annotated: &dynamo_frontend_protocols::types::Annotated<T>,
     response_collector: &mut ResponseMetricCollector,
     http_queue_guard: &mut Option<HttpQueueGuard>,
 ) {
@@ -2917,7 +2917,7 @@ pub fn process_response_and_observe_metrics<T>(
 /// The typed metrics field is the hot path. Annotation parsing remains as a compatibility
 /// fallback for legacy/generated annotation frames.
 pub fn process_chat_response_and_observe_metrics(
-    annotated: &crate::types::Annotated<NvCreateChatCompletionStreamResponse>,
+    annotated: &dynamo_frontend_protocols::types::Annotated<NvCreateChatCompletionStreamResponse>,
     response_collector: &mut ResponseMetricCollector,
     http_queue_guard: &mut Option<HttpQueueGuard>,
 ) {
@@ -2933,10 +2933,10 @@ pub fn process_chat_response_and_observe_metrics(
 }
 
 /// Event converter wrapper for streaming responses
-pub struct EventConverter<T>(pub crate::types::Annotated<T>);
+pub struct EventConverter<T>(pub dynamo_frontend_protocols::types::Annotated<T>);
 
-impl<T> From<crate::types::Annotated<T>> for EventConverter<T> {
-    fn from(annotated: crate::types::Annotated<T>) -> Self {
+impl<T> From<dynamo_frontend_protocols::types::Annotated<T>> for EventConverter<T> {
+    fn from(annotated: dynamo_frontend_protocols::types::Annotated<T>) -> Self {
         EventConverter(annotated)
     }
 }
@@ -2979,7 +2979,7 @@ fn observe_llm_metrics(
 }
 
 fn observe_annotation_metrics<T>(
-    annotated: &crate::types::Annotated<T>,
+    annotated: &dynamo_frontend_protocols::types::Annotated<T>,
     response_collector: &mut ResponseMetricCollector,
     http_queue_guard: &mut Option<HttpQueueGuard>,
 ) -> bool {
@@ -2992,7 +2992,7 @@ fn observe_annotation_metrics<T>(
 }
 
 fn annotated_to_sse_event<T: Serialize>(
-    annotated: crate::types::Annotated<T>,
+    annotated: dynamo_frontend_protocols::types::Annotated<T>,
 ) -> Result<Option<Event>, axum::Error> {
     let mut event = Event::default();
 
@@ -3056,7 +3056,7 @@ pub fn process_response_using_event_converter_and_observe_metrics<T: Serialize>(
     // ANNOTATION_PAYLOAD_USAGE is payload-only and must never reach the client SSE
     // stream (the payload DeltaAggregator consumed its usage upstream).
     if annotated.event.as_deref()
-        == Some(crate::protocols::common::metrics::ANNOTATION_PAYLOAD_USAGE)
+        == Some(dynamo_frontend_protocols::common::metrics::ANNOTATION_PAYLOAD_USAGE)
     {
         annotated.event = None;
         annotated.comment = None;
@@ -3101,7 +3101,7 @@ pub fn process_chat_response_using_event_converter_and_observe_metrics(
     // consumed its usage upstream, so strip the whole chunk; it must never
     // reach the client SSE stream.
     if annotated.event.as_deref()
-        == Some(crate::protocols::common::metrics::ANNOTATION_PAYLOAD_USAGE)
+        == Some(dynamo_frontend_protocols::common::metrics::ANNOTATION_PAYLOAD_USAGE)
     {
         annotated.event = None;
         annotated.comment = None;
@@ -3753,7 +3753,7 @@ mod tests {
     /// empty delta carrying `llm_metrics` must still count.
     #[test]
     fn test_empty_delta_with_metrics_is_still_counted() {
-        use crate::protocols::common::metrics::LLMMetricAnnotation;
+        use dynamo_frontend_protocols::common::metrics::LLMMetricAnnotation;
         use dynamo_protocols::types::{
             ChatChoiceStream, ChatCompletionStreamResponseDelta, CreateChatCompletionStreamResponse,
         };
@@ -3802,7 +3802,7 @@ mod tests {
             tool_call_completion: Vec::new(),
             model_eos: Vec::new(),
         };
-        let annotated = crate::types::Annotated::from_data(data);
+        let annotated = dynamo_frontend_protocols::types::Annotated::from_data(data);
 
         process_chat_response_and_observe_metrics(&annotated, &mut collector, &mut guard);
         drop(collector);
@@ -4660,8 +4660,8 @@ mod tests {
 
     #[test]
     fn test_metrics_annotation_event_handling() {
-        use crate::protocols::common::metrics::LLMMetricAnnotation;
-        use crate::types::Annotated;
+        use dynamo_frontend_protocols::common::metrics::LLMMetricAnnotation;
+        use dynamo_frontend_protocols::types::Annotated;
 
         let metrics = Arc::new(Metrics::new());
         let registry = prometheus::Registry::new();
@@ -4674,11 +4674,11 @@ mod tests {
 
         // Create a metrics annotation event (event without SSE data payload)
         let mut annotated = Annotated::<
-            crate::protocols::openai::chat_completions::NvCreateChatCompletionStreamResponse,
+            dynamo_frontend_protocols::openai::chat_completions::NvCreateChatCompletionStreamResponse,
         > {
             id: None,
             data: None,
-            event: Some(crate::protocols::common::metrics::ANNOTATION_LLM_METRICS.to_string()),
+            event: Some(dynamo_frontend_protocols::common::metrics::ANNOTATION_LLM_METRICS.to_string()),
             comment: None,
             error: None,
         };
@@ -4771,11 +4771,11 @@ mod tests {
         //     must reach the client, but the metrics event/comment must be stripped.
         // (2) The payload-only `payload_usage` chunk must be dropped entirely (the payload
         //     DeltaAggregator already consumed its usage upstream).
-        use crate::protocols::common::metrics::ANNOTATION_PAYLOAD_USAGE;
-        use crate::protocols::common::metrics::LLMMetricAnnotation;
-        use crate::types::Annotated;
         use axum::response::IntoResponse;
         use axum::response::sse::Sse;
+        use dynamo_frontend_protocols::common::metrics::ANNOTATION_PAYLOAD_USAGE;
+        use dynamo_frontend_protocols::common::metrics::LLMMetricAnnotation;
+        use dynamo_frontend_protocols::types::Annotated;
 
         let metrics = Arc::new(Metrics::new());
         let registry = prometheus::Registry::new();
@@ -4802,7 +4802,7 @@ mod tests {
         let metrics_json = metrics_comment.as_ref().expect("metrics comment present")[0].clone();
 
         // (1) Per-chunk metrics on a content chunk (event = llm_metrics).
-        let content: crate::protocols::openai::chat_completions::NvCreateChatCompletionStreamResponse =
+        let content: dynamo_frontend_protocols::openai::chat_completions::NvCreateChatCompletionStreamResponse =
             serde_json::from_value(serde_json::json!({
                 "id": "chatcmpl-x", "object": "chat.completion.chunk", "created": 1,
                 "model": "test-model",
@@ -4812,7 +4812,9 @@ mod tests {
         let per_chunk = Annotated {
             id: None,
             data: Some(content),
-            event: Some(crate::protocols::common::metrics::ANNOTATION_LLM_METRICS.to_string()),
+            event: Some(
+                dynamo_frontend_protocols::common::metrics::ANNOTATION_LLM_METRICS.to_string(),
+            ),
             comment: metrics_comment.clone(),
             error: None,
         };
@@ -4845,7 +4847,7 @@ mod tests {
         );
 
         // A choice-less Dynamo metadata frame is client-visible.
-        let metadata: crate::protocols::openai::chat_completions::NvCreateChatCompletionStreamResponse =
+        let metadata: dynamo_frontend_protocols::openai::chat_completions::NvCreateChatCompletionStreamResponse =
             serde_json::from_value(serde_json::json!({
                 "id": "chatcmpl-x", "object": "chat.completion.chunk", "created": 1,
                 "model": "test-model", "choices": [],
@@ -4880,7 +4882,7 @@ mod tests {
         );
 
         // (2) Payload-only usage chunk (event = payload_usage, carries usage data).
-        let usage: crate::protocols::openai::chat_completions::NvCreateChatCompletionStreamResponse =
+        let usage: dynamo_frontend_protocols::openai::chat_completions::NvCreateChatCompletionStreamResponse =
             serde_json::from_value(serde_json::json!({
                 "id": "chatcmpl-x", "object": "chat.completion.chunk", "created": 1,
                 "model": "test-model", "choices": [],
@@ -4911,7 +4913,7 @@ mod tests {
 
     #[test]
     fn test_chat_typed_metrics_fast_path_observes_without_annotation() {
-        use crate::protocols::common::metrics::LLMMetricAnnotation;
+        use dynamo_frontend_protocols::common::metrics::LLMMetricAnnotation;
 
         let metrics = Arc::new(Metrics::new());
         let registry = prometheus::Registry::new();
@@ -4943,15 +4945,16 @@ mod tests {
         assert!(annotated.comment.is_none());
 
         annotated.data.as_mut().unwrap().tool_call_completion = vec![
-            crate::protocols::openai::chat_completions::ToolCallCompletion {
+            dynamo_frontend_protocols::openai::chat_completions::ToolCallCompletion {
                 choice_index: 0,
                 tool_index: 0,
                 complete: true,
             },
         ];
         annotated.data.as_mut().unwrap().model_eos = vec![0];
-        let transported: crate::types::Annotated<NvCreateChatCompletionStreamResponse> =
-            serde_json::from_value(serde_json::to_value(&annotated).unwrap()).unwrap();
+        let transported: dynamo_frontend_protocols::types::Annotated<
+            NvCreateChatCompletionStreamResponse,
+        > = serde_json::from_value(serde_json::to_value(&annotated).unwrap()).unwrap();
         assert_eq!(
             transported.data.as_ref().unwrap().tool_call_completion,
             annotated.data.as_ref().unwrap().tool_call_completion
@@ -5013,7 +5016,7 @@ mod tests {
 
     #[test]
     fn test_chat_stream_typed_metrics_are_skipped_in_json() {
-        use crate::protocols::common::metrics::LLMMetricAnnotation;
+        use dynamo_frontend_protocols::common::metrics::LLMMetricAnnotation;
 
         let without_metrics = make_chat_stream_annotated("hello").data.unwrap();
         let mut with_metrics = without_metrics.clone();
@@ -5056,8 +5059,8 @@ mod tests {
 
     #[test]
     fn test_non_streaming_path_observes_cached_tokens() {
-        use crate::protocols::common::metrics::LLMMetricAnnotation;
-        use crate::types::Annotated;
+        use dynamo_frontend_protocols::common::metrics::LLMMetricAnnotation;
+        use dynamo_frontend_protocols::types::Annotated;
 
         let metrics = Arc::new(Metrics::new());
         let registry = prometheus::Registry::new();
@@ -5070,11 +5073,11 @@ mod tests {
 
         // Create a metrics annotation event
         let mut annotated = Annotated::<
-            crate::protocols::openai::chat_completions::NvCreateChatCompletionStreamResponse,
+            dynamo_frontend_protocols::openai::chat_completions::NvCreateChatCompletionStreamResponse,
         > {
             id: None,
             data: None,
-            event: Some(crate::protocols::common::metrics::ANNOTATION_LLM_METRICS.to_string()),
+            event: Some(dynamo_frontend_protocols::common::metrics::ANNOTATION_LLM_METRICS.to_string()),
             comment: None,
             error: None,
         };
@@ -5603,7 +5606,7 @@ mod tests {
     }
 
     fn run_event_converter(
-        annotated: crate::types::Annotated<String>,
+        annotated: dynamo_frontend_protocols::types::Annotated<String>,
     ) -> Result<Option<Event>, axum::Error> {
         let metrics = Arc::new(Metrics::new());
         let mut collector = response_collector(&metrics, "test-model");
@@ -5616,8 +5619,8 @@ mod tests {
     }
 
     fn run_chat_stream_event_converter(
-        annotated: crate::types::Annotated<
-            crate::protocols::openai::chat_completions::NvCreateChatCompletionStreamResponse,
+        annotated: dynamo_frontend_protocols::types::Annotated<
+            dynamo_frontend_protocols::openai::chat_completions::NvCreateChatCompletionStreamResponse,
         >,
     ) -> Result<Option<Event>, axum::Error> {
         let metrics = Arc::new(Metrics::new());
@@ -5633,8 +5636,8 @@ mod tests {
 
     fn make_chat_stream_annotated(
         content: &str,
-    ) -> crate::types::Annotated<
-        crate::protocols::openai::chat_completions::NvCreateChatCompletionStreamResponse,
+    ) -> dynamo_frontend_protocols::types::Annotated<
+        dynamo_frontend_protocols::openai::chat_completions::NvCreateChatCompletionStreamResponse,
     > {
         use dynamo_protocols::types::{
             ChatChoiceStream, ChatCompletionMessageContent, ChatCompletionStreamResponseDelta,
@@ -5656,10 +5659,10 @@ mod tests {
             logprobs: None,
         };
 
-        crate::types::Annotated {
+        dynamo_frontend_protocols::types::Annotated {
             id: Some("test-id".to_string()),
             data: Some(
-                crate::protocols::openai::chat_completions::NvCreateChatCompletionStreamResponse {
+                dynamo_frontend_protocols::openai::chat_completions::NvCreateChatCompletionStreamResponse {
                     message_boundary: None,
                     inner: CreateChatCompletionStreamResponse {
                         id: "test-id".to_string(),
@@ -5714,8 +5717,8 @@ mod tests {
     fn error_annotated(
         error: Option<dynamo_runtime::error::DynamoError>,
         comment: Option<Vec<String>>,
-    ) -> crate::types::Annotated<String> {
-        crate::types::Annotated {
+    ) -> dynamo_frontend_protocols::types::Annotated<String> {
+        dynamo_frontend_protocols::types::Annotated {
             data: None,
             id: None,
             event: Some("error".to_string()),
@@ -5780,7 +5783,7 @@ mod tests {
 
     #[test]
     fn test_comment_newlines_sanitized() {
-        let annotated = crate::types::Annotated::<String> {
+        let annotated = dynamo_frontend_protocols::types::Annotated::<String> {
             data: Some("test".to_string()),
             id: None,
             event: Some("metrics".to_string()),
@@ -5881,15 +5884,15 @@ mod tests {
         use crate::http::service::openai::check_for_backend_error;
         use crate::http::service::service_v2::BackendErrorCheck;
         use crate::preprocessor::OpenAIPreprocessor;
-        use crate::protocols::common::llm_backend::{BackendOutput, FinishReason};
-        use crate::protocols::common::metrics::ANNOTATION_PAYLOAD_USAGE;
-        use crate::protocols::openai::ParsingOptions;
-        use crate::protocols::openai::chat_completions::aggregator::ChatCompletionAggregator;
-        use crate::protocols::openai::chat_completions::{
+        use crate::request_trace::payload_stream::scan_aggregate_with_future;
+        use dynamo_frontend_protocols::common::llm_backend::{BackendOutput, FinishReason};
+        use dynamo_frontend_protocols::common::metrics::ANNOTATION_PAYLOAD_USAGE;
+        use dynamo_frontend_protocols::openai::ParsingOptions;
+        use dynamo_frontend_protocols::openai::chat_completions::aggregator::ChatCompletionAggregator;
+        use dynamo_frontend_protocols::openai::chat_completions::{
             NvCreateChatCompletionRequest, NvCreateChatCompletionResponse,
         };
-        use crate::request_trace::payload_stream::scan_aggregate_with_future;
-        use crate::types::Annotated;
+        use dynamo_frontend_protocols::types::Annotated;
         use dynamo_runtime::engine::AsyncEngineContext;
         use futures::{Stream, StreamExt};
 
@@ -6024,7 +6027,7 @@ mod tests {
             let plain = observe_and_aggregate(preprocessed(false, outputs.clone())).await;
             let (captured, future) = scan_aggregate_with_future(
                 Box::pin(preprocessed(true, outputs)),
-                crate::protocols::openai::ParsingOptions::default(),
+                dynamo_frontend_protocols::openai::ParsingOptions::default(),
             );
             let capture = observe_and_aggregate(captured).await;
             (plain, capture, future)
@@ -6268,7 +6271,7 @@ mod tests {
                 observe_and_aggregate(futures::stream::iter(dual_carrier())).await;
             let (captured, _future) = scan_aggregate_with_future(
                 futures::stream::iter(dual_carrier()),
-                crate::protocols::openai::ParsingOptions::default(),
+                dynamo_frontend_protocols::openai::ParsingOptions::default(),
             );
             let (capture_registry, _) = observe_and_aggregate(captured).await;
 

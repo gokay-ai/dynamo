@@ -12,8 +12,9 @@ repository.workspace = true
 description = "Dynamo SGLang sidecar for an out-of-process engine exposed through its native gRPC service."
 
 [package.metadata.cargo-machete]
-# Referenced by protobuf code generated into OUT_DIR.
-ignored = ["prost"]
+# prost: referenced by protobuf code generated into OUT_DIR.
+# dynamo-llm: no source names it; the `mm-routing` feature below forwards to it.
+ignored = ["prost", "dynamo-llm"]
 
 [[bin]]
 name = "dynamo-sglang-sidecar"
@@ -31,6 +32,7 @@ jemalloc = ["dynamo-sidecar-common/jemalloc"]
 dynamo-sglang-generate = { workspace = true }
 dynamo-backend-common = { workspace = true }
 dynamo-llm = { workspace = true }
+dynamo-frontend-protocols = { workspace = true }
 dynamo-model-card = { workspace = true }
 dynamo-runtime = { workspace = true }
 dynamo-sidecar-common = { workspace = true }

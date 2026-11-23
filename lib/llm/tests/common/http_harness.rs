@@ -9,9 +9,9 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{Context, Result, anyhow};
+use dynamo_frontend_protocols::openai::chat_completions::NvCreateChatCompletionStreamResponse;
+use dynamo_frontend_protocols::{Annotated, codec::create_message_stream};
 use dynamo_llm::http::service::{Metrics, service_v2::HttpService};
-use dynamo_llm::protocols::openai::chat_completions::NvCreateChatCompletionStreamResponse;
-use dynamo_llm::protocols::{Annotated, codec::create_message_stream};
 use dynamo_model_card::model_card::ModelDeploymentCard;
 use dynamo_runtime::CancellationToken;
 use dynamo_runtime::error::DynamoError;

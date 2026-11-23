@@ -30,28 +30,28 @@ use crate::{
     kv_router::plugins::RouterPluginBuilder,
     kv_router::{EncoderRouter, PrefillRouter, RouterLoadSource, RoutingLoadContext, role_routing},
     preprocessor::{OpenAIPreprocessor, prompt::prompt_formatter_from_mdc},
-    protocols::common::preprocessor::PreprocessedEmbeddingRequest,
-    protocols::common::timing::WORKER_TYPE_DECODE,
-    protocols::{
-        common::llm_backend::EmbeddingsEngineOutput,
-        openai::{
-            audios::{NvAudioSpeechResponse, NvCreateAudioSpeechRequest},
-            chat_completions::{
-                NvCreateChatCompletionRequest, NvCreateChatCompletionStreamResponse,
-            },
-            classify::{NvCreateClassifyRequest, NvCreateClassifyResponse},
-            completions::{NvCreateCompletionRequest, NvCreateCompletionResponse},
-            embeddings::{NvCreateEmbeddingRequest, NvCreateEmbeddingResponse},
-            images::{NvCreateImageRequest, NvImagesResponse},
-            pooling::{NvCreatePoolingRequest, NvCreatePoolingResponse},
-            rerank::{NvCreateRerankRequest, NvCreateRerankResponse},
-            transcriptions::{NvAudioTranscriptionResponse, NvCreateAudioTranscriptionRequest},
-            videos::{NvCreateVideoRequest, NvVideosResponse},
-        },
-        tensor::{NvCreateTensorRequest, NvCreateTensorResponse},
-    },
-    types::generic::realtime::{DynamoRealtimeClientEvent, RealtimeServerEvent},
     worker_type::WorkerType,
+};
+use dynamo_frontend_protocols::common::preprocessor::PreprocessedEmbeddingRequest;
+use dynamo_frontend_protocols::common::timing::WORKER_TYPE_DECODE;
+use dynamo_frontend_protocols::types::generic::realtime::{
+    DynamoRealtimeClientEvent, RealtimeServerEvent,
+};
+use dynamo_frontend_protocols::{
+    common::llm_backend::EmbeddingsEngineOutput,
+    openai::{
+        audios::{NvAudioSpeechResponse, NvCreateAudioSpeechRequest},
+        chat_completions::{NvCreateChatCompletionRequest, NvCreateChatCompletionStreamResponse},
+        classify::{NvCreateClassifyRequest, NvCreateClassifyResponse},
+        completions::{NvCreateCompletionRequest, NvCreateCompletionResponse},
+        embeddings::{NvCreateEmbeddingRequest, NvCreateEmbeddingResponse},
+        images::{NvCreateImageRequest, NvImagesResponse},
+        pooling::{NvCreatePoolingRequest, NvCreatePoolingResponse},
+        rerank::{NvCreateRerankRequest, NvCreateRerankResponse},
+        transcriptions::{NvAudioTranscriptionResponse, NvCreateAudioTranscriptionRequest},
+        videos::{NvCreateVideoRequest, NvVideosResponse},
+    },
+    tensor::{NvCreateTensorRequest, NvCreateTensorResponse},
 };
 use dynamo_model_card::{
     json::canonicalize_json_object_keys,
@@ -1167,7 +1167,7 @@ fn check_unified_family_tokens(
     card: &ModelDeploymentCard,
     tokenizer: &mut Option<crate::tokenizers::Tokenizer>,
 ) -> anyhow::Result<()> {
-    use crate::protocols::openai::chat_completions::unified_parser;
+    use dynamo_frontend_protocols::openai::chat_completions::unified_parser;
     let tool_call_parser = card.runtime_config.tool_call_parser.as_deref();
     let reasoning_parser = card.runtime_config.reasoning_parser.as_deref();
     if !should_validate_parser_version(card)
@@ -1564,7 +1564,7 @@ fn validate_card_parser_version(
                 card.runtime_config.reasoning_parser.as_deref(),
             )
         };
-        crate::protocols::openai::chat_completions::tool_parser_v2::validate_parser_version(
+        dynamo_frontend_protocols::openai::chat_completions::tool_parser_v2::validate_parser_version(
             tool, reasoning,
         )?;
     }
@@ -1817,7 +1817,7 @@ mod tests {
 
     #[tokio::test]
     async fn retired_worker_set_prevents_late_prefill_from_retained_chat_pipeline() {
-        use crate::protocols::common::llm_backend::{BackendOutput, PreprocessedRequest};
+        use dynamo_frontend_protocols::common::llm_backend::{BackendOutput, PreprocessedRequest};
         use dynamo_runtime::engine::AsyncEngineContextProvider;
         use dynamo_runtime::pipeline::ResponseStream;
         use futures::StreamExt;
@@ -3205,7 +3205,7 @@ request_classifier:
         watcher.chat_engine_factory = Some(Arc::new(|_, _, _| {
             Box::pin(async {
                 Ok(Arc::new(UncalledEngine)
-                    as crate::types::openai::chat_completions::OpenAIChatCompletionsStreamingEngine)
+                    as dynamo_frontend_protocols::types::openai::chat_completions::OpenAIChatCompletionsStreamingEngine)
             })
         }));
         assert!(!spec.representative.card.is_systemone_serial_eligible());
@@ -3771,7 +3771,7 @@ request_classifier:
 
     #[tokio::test]
     async fn parser_validation_respects_engine_factory_ownership() {
-        use crate::types::openai::chat_completions::OpenAIChatCompletionsStreamingEngine;
+        use dynamo_frontend_protocols::types::openai::chat_completions::OpenAIChatCompletionsStreamingEngine;
         use std::sync::atomic::Ordering;
 
         const SCENARIO: &str = "DYNAMO_FACTORY_PARSER_SCENARIO";
@@ -3924,7 +3924,7 @@ request_classifier:
                         worker_set.input_policy(),
                         crate::chat_input::ChatInputPolicy::Standard
                     );
-                    let mut request: crate::protocols::anthropic::types::AnthropicCreateMessageRequest = serde_json::from_value(serde_json::json!({
+                    let mut request: dynamo_frontend_protocols::anthropic::types::AnthropicCreateMessageRequest = serde_json::from_value(serde_json::json!({
                         "model":"test", "max_tokens":32, "messages":[
                             {"role":"user","content":"hi"}, {"role":"assistant","content":"hello"},
                             {"role":"system","content":"reminder"}

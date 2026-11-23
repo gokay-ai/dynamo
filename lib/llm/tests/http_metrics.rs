@@ -3,17 +3,17 @@
 
 use anyhow::Error;
 use async_stream::stream;
+use dynamo_frontend_protocols::common::metrics::LLMMetricAnnotation;
+use dynamo_frontend_protocols::{
+    Annotated,
+    openai::chat_completions::{
+        NvCreateChatCompletionRequest, NvCreateChatCompletionStreamResponse,
+    },
+    openai::completions::{NvCreateCompletionRequest, NvCreateCompletionResponse},
+};
 use dynamo_llm::{
     discovery::UNKNOWN_METRIC_MODEL,
     http::service::{metrics::Endpoint, service_v2::HttpService},
-    protocols::common::metrics::LLMMetricAnnotation,
-    protocols::{
-        Annotated,
-        openai::chat_completions::{
-            NvCreateChatCompletionRequest, NvCreateChatCompletionStreamResponse,
-        },
-        openai::completions::{NvCreateCompletionRequest, NvCreateCompletionResponse},
-    },
 };
 use dynamo_model_card::model_card::ModelDeploymentCard;
 use dynamo_runtime::metrics::prometheus_names::frontend_service::METRICS_PREFIX_ENV;
