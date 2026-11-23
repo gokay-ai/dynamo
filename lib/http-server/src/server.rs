@@ -244,7 +244,7 @@ impl HttpServer {
             observer.cancelled().await;
             state.start_draining();
             tracing::info!("{protocol} server shutdown requested");
-            let shutdown_timeout = Duration::from_secs(get_graceful_shutdown_timeout() as u64);
+            let shutdown_timeout = dynamo_runtime::config::http_graceful_shutdown_timeout();
             let drain_started = tokio::time::Instant::now();
             if !state.wait_inflight_zero_or_timeout(shutdown_timeout).await {
                 tracing::warn!(
@@ -266,13 +266,6 @@ impl HttpServer {
         state_cancel.cancel();
         Ok(())
     }
-}
-
-fn get_graceful_shutdown_timeout() -> usize {
-    std::env::var(env_llm::DYN_HTTP_GRACEFUL_SHUTDOWN_TIMEOUT_SECS)
-        .ok()
-        .and_then(|s| s.parse::<usize>().ok())
-        .unwrap_or(5)
 }
 
 fn write_idle_timeout() -> Duration {
