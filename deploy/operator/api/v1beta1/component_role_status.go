@@ -10,12 +10,19 @@ type ComponentRoleStatus struct {
 	// +required
 	Name string `json:"name"`
 
-	// containers contains the final application and initialization containers,
-	// including native runtime sidecars, keyed by their Pod container name.
+	// containers contains the final application containers, keyed by their Pod
+	// container name, in the same list as the lowered PodSpec.
 	// +optional
 	// +listType=map
 	// +listMapKey=name
 	Containers []ComponentContainerStatus `json:"containers,omitempty"`
+
+	// initContainers contains the final initialization containers, including
+	// native runtime sidecars, in the same list as the lowered PodSpec.
+	// +optional
+	// +listType=map
+	// +listMapKey=name
+	InitContainers []ComponentContainerStatus `json:"initContainers,omitempty"`
 }
 
 // ComponentContainerStatus projects a container's lowered launch declarations.

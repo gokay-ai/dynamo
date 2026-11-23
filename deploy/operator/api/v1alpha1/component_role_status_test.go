@@ -15,6 +15,8 @@ func TestComponentRoleStatusNativeConversion(t *testing.T) {
 	roles := []v1beta1.ComponentRoleStatus{{Name: "worker", Containers: []v1beta1.ComponentContainerStatus{{
 		Name: "main", Image: "engine:test", Command: []string{"python3"}, Args: []string{"-m", "dynamo.vllm"},
 		Env: map[string]v1beta1.EnvironmentValueStatus{"EMPTY": {Value: new("")}, "MODE": {Value: new("kv")}, "RANK": {Unresolved: true}},
+	}}, InitContainers: []v1beta1.ComponentContainerStatus{{
+		Name: "runtime", Image: "runtime:test", Env: map[string]v1beta1.EnvironmentValueStatus{"MODE": {Value: new("pod")}},
 	}}}, {Name: "leader"}}
 	dgd := &v1beta1.DynamoGraphDeployment{Status: v1beta1.DynamoGraphDeploymentStatus{ObservedGeneration: 7,
 		Components: map[string]v1beta1.ComponentReplicaStatus{"engine": {Roles: roles}},

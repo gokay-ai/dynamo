@@ -2842,7 +2842,13 @@ name identifies the logical role, such as main, leader, or worker.
 </ParamField>
 
 <ParamField path="containers" type="ComponentContainerStatus array">
-containers contains the final application and initialization containers, including native runtime sidecars, keyed by their Pod container name.
+containers contains the final application containers, keyed by their Pod container name, in the same list as the lowered PodSpec.
+See [ComponentContainerStatus](#componentcontainerstatus).
+**Validation:** Optional: \&#123;\&#125;
+</ParamField>
+
+<ParamField path="initContainers" type="ComponentContainerStatus array">
+initContainers contains the final initialization containers, including native runtime sidecars, in the same list as the lowered PodSpec.
 See [ComponentContainerStatus](#componentcontainerstatus).
 **Validation:** Optional: \&#123;\&#125;
 </ParamField>

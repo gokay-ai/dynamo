@@ -39,7 +39,8 @@ func TestResolveComponentRoleStatus(t *testing.T) {
 	t.Log("Project known final bindings without guessing provider, Secret, or Pod values")
 	status := ResolveComponentRoleStatus("leader", pod)
 	require.Equal(t, "leader", status.Name)
-	require.Len(t, status.Containers, 2)
+	require.Len(t, status.Containers, 1)
+	require.Len(t, status.InitContainers, 1)
 	main := status.Containers[0]
 	require.Equal(t, pod.Containers[0].Command, main.Command)
 	require.Equal(t, pod.Containers[0].Args, main.Args)
@@ -50,7 +51,8 @@ func TestResolveComponentRoleStatus(t *testing.T) {
 		require.Equal(t, v1beta1.EnvironmentValueStatus{Unresolved: true}, main.Env[name])
 	}
 	require.NotContains(t, main.Env, "GROVE_PCSG_POD_INDEX")
-	require.Equal(t, "round-robin", *status.Containers[1].Env["MODE"].Value)
+	require.Equal(t, "runtime", status.InitContainers[0].Name)
+	require.Equal(t, "round-robin", *status.InitContainers[0].Env["MODE"].Value)
 	require.Equal(t, original, pod)
 
 	t.Log("Editing the exported declarations must not mutate the workload")
@@ -70,12 +72,14 @@ func TestComponentRoleStatusBoundsRetainedExpansions(t *testing.T) {
 	for i := range 20 {
 		pod.Containers = append(pod.Containers, corev1.Container{Name: "container-" + strconv.Itoa(i), Env: env})
 	}
+	pod.InitContainers = pod.Containers[10:]
+	pod.Containers = pod.Containers[:10]
 	original := pod.DeepCopy()
 	status := ResolveComponentRoleStatus("main", pod)
 	data, err := json.Marshal(status)
 	require.NoError(t, err)
 	require.Less(t, len(data), maxComponentRoleStatusBytes)
-	require.True(t, status.Containers[19].Env["V18"].Unresolved)
+	require.True(t, status.InitContainers[9].Env["V18"].Unresolved)
 	require.Equal(t, original, pod)
 }
 

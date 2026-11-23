@@ -425,7 +425,7 @@ Nested struct types referenced by the fields above, broken out here to keep the 
 
 ### Target Role Configuration
 
-The operator reports final target container declarations under DCD `status.component.roles` and DGD `status.components.<name>.roles`. Roles and containers are lists keyed by `name`. Single-node components use `main`; multinode components use `leader` and `worker`. Native runtime sidecars and other initialization containers are included by their container names.
+The operator reports final target container declarations under DCD `status.component.roles` and DGD `status.components.<name>.roles`. Roles and containers are lists keyed by `name`. Single-node components use `main`; multinode components use `leader` and `worker`. Each role preserves the PodSpec's separate `containers` and `initContainers` lists. Native runtime sidecars remain in `initContainers`.
 
 The export describes the existing lowering for the resource's global `status.observedGeneration`. It has no separate generation or revision and does not wait for running Pods to adopt the target. It does not interpret shell scripts, infer image entrypoints, resolve image tags, or determine the runtime's effective router configuration.
 
@@ -443,8 +443,11 @@ status:
         containers:
           - name: main
             image: registry.example/engine:example
-            command: [python3]
-            args: [-m, dynamo.vllm]
+            command: [vllm]
+            args: [serve, /mnt/models]
+        initContainers:
+          - name: runtime
+            image: registry.example/runtime:example
             env:
               Z_MODE:
                 value: kv
@@ -459,7 +462,8 @@ status:
 | Field | Type | Meaning |
 | --- | --- | --- |
 | Role `name` | string, required | Logical role name, independent of provider resource names. |
-| Role `containers` | named list | Final application and initialization container declarations. |
+| Role `containers` | named list | Final application container declarations, preserving the lowered PodSpec's list. |
+| Role `initContainers` | named list | Final initialization container declarations, including native runtime sidecars. Optional, with no default. |
 | Container `name` | string, required | Name in the lowered PodSpec. |
 | Container `image` | string, required | Declared image reference. |
 | Container `command` | ordered string list | Declared command, without Kubernetes or shell expansion. Absence does not establish the image entrypoint. |

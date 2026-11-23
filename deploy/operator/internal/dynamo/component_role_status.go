@@ -26,8 +26,21 @@ func ResolveComponentRoleStatus(name string, podSpec *corev1.PodSpec) v1beta1.Co
 }
 
 func resolveComponentRoleStatus(name string, podSpec *corev1.PodSpec, remaining *int) v1beta1.ComponentRoleStatus {
-	role := v1beta1.ComponentRoleStatus{Name: name}
-	for _, container := range slices.Concat(podSpec.Containers, podSpec.InitContainers) {
+	return v1beta1.ComponentRoleStatus{
+		Name:           name,
+		Containers:     resolveComponentContainerStatuses(podSpec.Containers, remaining),
+		InitContainers: resolveComponentContainerStatuses(podSpec.InitContainers, remaining),
+	}
+}
+
+func resolveComponentContainerStatuses(containers []corev1.Container, remaining *int) []v1beta1.ComponentContainerStatus {
+	if len(containers) == 0 {
+		return nil
+	}
+
+	// Both PodSpec lists share the role's retained expansion budget.
+	statuses := make([]v1beta1.ComponentContainerStatus, 0, len(containers))
+	for _, container := range containers {
 		// Replay the actual final list, never the authored layers or a sorted map.
 		status := v1beta1.ComponentContainerStatus{
 			Name: container.Name, Image: container.Image,
@@ -49,9 +62,9 @@ func resolveComponentRoleStatus(name string, podSpec *corev1.PodSpec, remaining 
 			}
 			status.Env[name] = binding
 		}
-		role.Containers = append(role.Containers, status)
+		statuses = append(statuses, status)
 	}
-	return role
+	return statuses
 }
 
 // ResolveGroveComponentRoleStatuses projects final target templates using the

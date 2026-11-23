@@ -1898,7 +1898,8 @@ _Appears in:_
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
 | `name` _string_ | name identifies the logical role, such as main, leader, or worker. |  | Required: \{\} <br /> |
-| `containers` _[ComponentContainerStatus](#componentcontainerstatus) array_ | containers contains the final application and initialization containers,<br />including native runtime sidecars, keyed by their Pod container name. |  | Optional: \{\} <br /> |
+| `containers` _[ComponentContainerStatus](#componentcontainerstatus) array_ | containers contains the final application containers, keyed by their Pod<br />container name, in the same list as the lowered PodSpec. |  | Optional: \{\} <br /> |
+| `initContainers` _[ComponentContainerStatus](#componentcontainerstatus) array_ | initContainers contains the final initialization containers, including<br />native runtime sidecars, in the same list as the lowered PodSpec. |  | Optional: \{\} <br /> |
 
 
 #### ComponentType
