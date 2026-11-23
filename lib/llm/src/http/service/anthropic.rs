@@ -41,7 +41,6 @@ use super::{
     },
     service_v2::{self, BackendErrorCheck},
 };
-use crate::frontend_config::ChatTemplateDefaults;
 use crate::protocols::ValidateRequest;
 use crate::protocols::anthropic::stream_converter::AnthropicStreamConverter;
 use crate::protocols::anthropic::types::{
@@ -60,8 +59,9 @@ use crate::protocols::openai::chat_completions::{
     NvCreateChatCompletionStreamResponse, aggregator::ChatCompletionAggregator,
 };
 use crate::protocols::unified::UnifiedRequest;
-use crate::request_template::{RequestTemplate, resolve_request_model};
 use crate::types::Annotated;
+use dynamo_model_card::frontend_config::ChatTemplateDefaults;
+use dynamo_model_card::request_template::{RequestTemplate, resolve_request_model};
 
 // Re-use helpers from the openai module (sibling under service/)
 use super::error::{

@@ -101,8 +101,8 @@ use crate::protocols::openai::{
     videos::{NvCreateVideoRequest, NvVideosResponse},
 };
 use crate::protocols::unified::UnifiedRequest;
-use crate::request_template::{RequestTemplate, resolve_request_model};
 use crate::types::Annotated;
+use dynamo_model_card::request_template::{RequestTemplate, resolve_request_model};
 use dynamo_protocols::types::ChatCompletionMessageContent;
 use dynamo_protocols::types::ChatCompletionMessageToolCallChunk;
 use dynamo_protocols::types::ChatCompletionStreamResponseDelta;
@@ -4363,7 +4363,7 @@ async fn chat_completions(
             .manager()
             .get_chat_completions_engine_with_parsing_for_capability(
                 &model,
-                crate::local_model::runtime_config::JSON_MULTIMODAL_CAPABILITY,
+                dynamo_model_card::local_model::runtime_config::JSON_MULTIMODAL_CAPABILITY,
             )
     } else {
         state
@@ -4760,11 +4760,13 @@ async fn chat_completions(
         } else {
             terminal.finish(TerminalOutcome::Success);
         }
-        Ok(Json(crate::reasoning_field::RoutedReasoning::new(
-            response,
-            state.reasoning_field(),
-        ))
-        .into_response())
+        Ok(
+            Json(dynamo_model_card::reasoning_field::RoutedReasoning::new(
+                response,
+                state.reasoning_field(),
+            ))
+            .into_response(),
+        )
     }
 }
 
@@ -7897,7 +7899,8 @@ mod tests {
     fn media_rejection_state(enabled: bool, status_code: u16) -> Arc<service_v2::State> {
         service_v2::HttpService::builder()
             .media_rejection(
-                crate::frontend_config::MediaRejectionConfig::new(enabled, status_code).unwrap(),
+                dynamo_model_card::frontend_config::MediaRejectionConfig::new(enabled, status_code)
+                    .unwrap(),
             )
             .build()
             .unwrap()
@@ -7945,7 +7948,7 @@ mod tests {
     fn test_reject_media_default_status_is_unsupported_media_type() {
         let state = media_rejection_state(
             true,
-            crate::frontend_config::DEFAULT_REJECT_MEDIA_STATUS_CODE,
+            dynamo_model_card::frontend_config::DEFAULT_REJECT_MEDIA_STATUS_CODE,
         );
 
         let (status, Json(body)) =

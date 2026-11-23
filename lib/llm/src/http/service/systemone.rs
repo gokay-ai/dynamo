@@ -31,7 +31,6 @@ use super::{
 use crate::{
     discovery::{SystemOneExecutionSelection, SystemOneSelectionError},
     generate_format::{Bound, ClientRequest, GenerateExchange, Worker},
-    model_card::ScoringBackend,
     protocols::{
         Annotated,
         common::{
@@ -45,6 +44,7 @@ use crate::{
         },
     },
 };
+use dynamo_model_card::model_card::ScoringBackend;
 
 #[path = "systemone/abort.rs"]
 mod abort;
