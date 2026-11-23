@@ -71,8 +71,10 @@ func (v *dynamoGraphDeploymentValidation) validateDynamoGraphDeploymentSpecV1alp
 		service := newSpec.Services[serviceName]
 		servicePath := servicesPath.Key(serviceName)
 		if oldSpec == nil || oldSpec.Services[serviceName] == nil {
-			if messages := k8svalidation.IsDNS1123Label(strings.ToLower(serviceName)); len(messages) > 0 {
-				allErrs = append(allErrs, field.Invalid(servicePath, serviceName, "component name is invalid: "+strings.Join(messages, "; ")))
+			if serviceName == "" {
+				allErrs = append(allErrs, field.Required(servicePath, "component name must not be empty"))
+			} else if messages := k8svalidation.IsValidLabelValue(serviceName); len(messages) > 0 {
+				allErrs = append(allErrs, field.Invalid(servicePath, serviceName, "generated "+consts.KubeLabelDynamoComponent+" label value is invalid: "+strings.Join(messages, "; ")))
 			}
 		}
 		dynamoNamespace := nvidiacomv1alpha1.ComputeDynamoNamespace(service.GlobalDynamoNamespace, dgdNamespace, dgdName)
@@ -155,7 +157,7 @@ func (v *dynamoGraphDeploymentValidation) validateDynamoGraphDeploymentServicesV
 		}
 	}
 	var allErrs field.ErrorList
-	ds := renderedDGD.Annotations[consts.KubeAnnotationWorkloadProvider] == consts.WorkloadProviderDisaggregatedSet || (renderedDGD.Annotations[consts.KubeAnnotationWorkloadProvider] == "" && strings.EqualFold(renderedDGD.Annotations[consts.KubeAnnotationEnableDisaggregatedSet], "true"))
+	ds := disaggregatedSetPathwayForDynamoGraphDeployment(renderedDGD)
 	for _, name := range sortedV1Alpha1ServiceNames(newDGD.Spec.Services) {
 		dcd := deployments[name]
 		if dcd.Spec.ManagedByExternalController() || (ds && disaggregatedset.Owns(&dcd.Spec.DynamoComponentDeploymentSharedSpec)) {
@@ -168,12 +170,12 @@ func (v *dynamoGraphDeploymentValidation) validateDynamoGraphDeploymentServicesV
 		}
 		var oldAlpha *nvidiacomv1alpha1.DynamoComponentDeployment
 		if oldDCD := oldDeployments[name]; oldDCD != nil {
-			oldDS := oldRenderedDGD.Annotations[consts.KubeAnnotationWorkloadProvider] == consts.WorkloadProviderDisaggregatedSet || (oldRenderedDGD.Annotations[consts.KubeAnnotationWorkloadProvider] == "" && strings.EqualFold(oldRenderedDGD.Annotations[consts.KubeAnnotationEnableDisaggregatedSet], "true"))
+			oldDS := disaggregatedSetPathwayForDynamoGraphDeployment(oldRenderedDGD)
 			if !(oldDS && disaggregatedset.Owns(&oldDCD.Spec.DynamoComponentDeploymentSharedSpec)) {
 				oldAlpha, _ = alphaDynamoComponentDeploymentForValidation(oldDCD)
 			}
 		}
-		errors := v.validateDynamoComponentDeploymentMetadataV1alpha1(alpha, oldAlpha, fldPath.Key(name).Child("ingress"))
+		errors := v.validateDynamoComponentDeploymentIngressV1alpha1(alpha, oldAlpha, fldPath.Key(name).Child("ingress"))
 		if dynamo.IsWorkerComponent(string(dcd.Spec.ComponentType)) {
 			for _, err := range errors {
 				err.Detail += "; worker hash is shown as zeros"

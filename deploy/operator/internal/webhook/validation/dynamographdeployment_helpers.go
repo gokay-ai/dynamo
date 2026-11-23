@@ -30,14 +30,18 @@ import (
 	"github.com/ai-dynamo/dynamo/deploy/operator/internal/consts"
 	"github.com/ai-dynamo/dynamo/deploy/operator/internal/dra"
 	"github.com/ai-dynamo/dynamo/deploy/operator/internal/features"
+	webhookdefaulting "github.com/ai-dynamo/dynamo/deploy/operator/internal/webhook/defaulting"
 	grovev1alpha1 "github.com/ai-dynamo/grove/operator/api/core/v1alpha1"
+	admissionv1 "k8s.io/api/admission/v1"
 	corev1 "k8s.io/api/core/v1"
 	apiequality "k8s.io/apimachinery/pkg/api/equality"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	k8sptr "k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 )
 
 type clusterTopologyInfo struct {
@@ -446,4 +450,35 @@ func oldDynamoGraphDeploymentWithObservedProvider(newDGD, oldDGD *nvidiacomv1bet
 		oldDGD.Annotations[consts.KubeAnnotationWorkloadProvider] = newDGD.Annotations[consts.KubeAnnotationWorkloadProvider]
 	}
 	return oldDGD
+}
+
+// disaggregatedSetPathwayForDynamoGraphDeployment identifies the DS path after Grove is excluded.
+// dgd must be non-nil.
+func disaggregatedSetPathwayForDynamoGraphDeployment(dgd *nvidiacomv1beta1.DynamoGraphDeployment) bool {
+	provider := dgd.Annotations[consts.KubeAnnotationWorkloadProvider]
+	return provider == consts.WorkloadProviderDisaggregatedSet ||
+		(provider == "" && strings.EqualFold(dgd.Annotations[consts.KubeAnnotationEnableDisaggregatedSet], consts.KubeLabelValueTrue))
+}
+
+// sameDynamoGraphDeploymentRenderInputs compares normalized rendering inputs without changing either object.
+// ctx and newDGD must be non-nil; oldDGD is nil on create. ctx carries the production feature gate.
+func sameDynamoGraphDeploymentRenderInputs(ctx context.Context, newDGD, oldDGD *nvidiacomv1beta1.DynamoGraphDeployment) (bool, error) {
+	if oldDGD == nil || newDGD.Name != oldDGD.Name || newDGD.Namespace != oldDGD.Namespace ||
+		!apiequality.Semantic.DeepEqual(newDGD.Annotations, oldDGD.Annotations) {
+		return false, nil
+	}
+
+	// Both versions need the same UPDATE defaults, including replicas omitted by legacy storage.
+	ctx = admission.NewContextWithRequest(ctx, admission.Request{
+		Operation: admissionv1.Update,
+		Kind:      metav1.GroupVersionKind{Group: nvidiacomv1beta1.GroupVersion.Group, Version: nvidiacomv1beta1.GroupVersion.Version, Kind: "DynamoGraphDeployment"},
+	})
+	newDefaulted, oldDefaulted := newDGD.DeepCopy(), oldDGD.DeepCopy()
+	defaulter := webhookdefaulting.NewDGDDefaulter("")
+	for _, dgd := range []*nvidiacomv1beta1.DynamoGraphDeployment{newDefaulted, oldDefaulted} {
+		if err := defaulter.Default(ctx, dgd); err != nil {
+			return false, err
+		}
+	}
+	return apiequality.Semantic.DeepEqual(newDefaulted.Spec, oldDefaulted.Spec), nil
 }

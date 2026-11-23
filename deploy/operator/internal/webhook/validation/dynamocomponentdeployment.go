@@ -119,7 +119,10 @@ func (v *DynamoComponentDeploymentValidator) ValidateUpdate(
 	}
 	oldAlpha, err := alphaDynamoComponentDeploymentForValidation(oldDCD)
 	if err != nil {
-		return nil, fmt.Errorf("cannot validate old v1alpha1 DynamoComponentDeployment fields: %w", err)
+		if validation.hasRuntimeVersionSource(runtimeVersionSourceV1Alpha1) {
+			return nil, fmt.Errorf("cannot validate old v1alpha1 DynamoComponentDeployment fields: %w", err)
+		}
+		oldAlpha = nil
 	}
 	allErrs = append(allErrs, validation.validateDynamoComponentDeploymentV1alpha1(newAlpha, oldAlpha)...)
 
@@ -277,7 +280,7 @@ func (v *dynamoComponentDeploymentValidation) validateDynamoComponentDeploymentM
 	if operatorOwnedDCDNameExemption(v.ctx, newDCD, v.operatorPrincipal) {
 		return allErrs
 	}
-	if oldDCD != nil && controlledByDynamoGraphDeployment(oldDCD) != controlledByDynamoGraphDeployment(newDCD) {
+	if oldDCD != nil && !sameDynamoGraphDeploymentController(newDCD, oldDCD) {
 		oldDCD = nil
 	}
 	return append(allErrs, v.validateDynamoComponentDeploymentRendered(newDCD, oldDCD, fldPath.Child("name"))...)

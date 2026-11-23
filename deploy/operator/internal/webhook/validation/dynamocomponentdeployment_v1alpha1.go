@@ -18,10 +18,14 @@
 package validation
 
 import (
+	"strings"
+
 	nvidiacomv1alpha1 "github.com/ai-dynamo/dynamo/deploy/operator/api/v1alpha1"
+	"github.com/ai-dynamo/dynamo/deploy/operator/internal/consts"
 	componentdeployment "github.com/ai-dynamo/dynamo/deploy/operator/internal/controller/component"
 	"github.com/ai-dynamo/dynamo/deploy/operator/internal/dynamo"
-	corev1 "k8s.io/api/core/v1"
+	networkingv1 "k8s.io/api/networking/v1"
+	k8svalidation "k8s.io/apimachinery/pkg/util/validation"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 )
 
@@ -42,38 +46,48 @@ func (v *dynamoComponentDeploymentValidation) validateDynamoComponentDeploymentV
 	if operatorOwnedDCDNameExemption(v.ctx, newDCD, v.operatorPrincipal) {
 		return allErrs
 	}
-	if oldDCD != nil && controlledByDynamoGraphDeployment(oldDCD) != controlledByDynamoGraphDeployment(newDCD) {
+	if oldDCD != nil && !sameDynamoGraphDeploymentController(newDCD, oldDCD) {
 		oldDCD = nil
 	}
-	return append(allErrs, v.validateDynamoComponentDeploymentMetadataV1alpha1(newDCD, oldDCD, field.NewPath("metadata", "name"))...)
+
+	// The original alpha service name becomes the component label without lowercasing.
+	if oldDCD == nil || newDCD.Spec.ServiceName != oldDCD.Spec.ServiceName {
+		if messages := k8svalidation.IsValidLabelValue(newDCD.Spec.ServiceName); len(messages) > 0 {
+			allErrs = append(allErrs, field.Invalid(field.NewPath("spec", "serviceName"), newDCD.Spec.ServiceName, "generated "+consts.KubeLabelDynamoComponent+" label value is invalid: "+strings.Join(messages, "; ")))
+		}
+	}
+	return append(allErrs, v.validateDynamoComponentDeploymentIngressV1alpha1(newDCD, oldDCD, field.NewPath("spec", "ingress"))...)
 }
 
-// validateDynamoComponentDeploymentSpecV1alpha1 validates spec. spec and fldPath must not be nil.
+// validateDynamoComponentDeploymentSpecV1alpha1 validates newSpec.
+// newSpec and fldPath must not be nil.
 func (v *dynamoComponentDeploymentValidation) validateDynamoComponentDeploymentSpecV1alpha1(
-	spec *nvidiacomv1alpha1.DynamoComponentDeploymentSpec,
+	newSpec *nvidiacomv1alpha1.DynamoComponentDeploymentSpec,
 	fldPath *field.Path,
 	dynamoNamespace string,
 ) field.ErrorList {
-	return v.validateDynamoComponentDeploymentSharedSpecV1alpha1(
-		&spec.DynamoComponentDeploymentSharedSpec,
+	allErrs := v.validateDynamoComponentDeploymentSharedSpecV1alpha1(
+		&newSpec.DynamoComponentDeploymentSharedSpec,
 		fldPath,
 		dynamoNamespace,
 	)
+
+	return allErrs
 }
 
-// validateDynamoComponentDeploymentMetadataV1alpha1 checks rendered legacy Ingress backend names.
+// validateDynamoComponentDeploymentIngressV1alpha1 checks rendered legacy Ingress backend names at the source ingress field.
 // newDCD and fldPath must be non-nil; oldDCD is nil when no matching old DCD existed.
-func (v *sharedValidation) validateDynamoComponentDeploymentMetadataV1alpha1(newDCD, oldDCD *nvidiacomv1alpha1.DynamoComponentDeployment, fldPath *field.Path) field.ErrorList {
+func (v *sharedValidation) validateDynamoComponentDeploymentIngressV1alpha1(newDCD, oldDCD *nvidiacomv1alpha1.DynamoComponentDeployment, fldPath *field.Path) field.ErrorList {
 	ingress := newDCD.Spec.Ingress
 	if ingress == nil || !componentdeployment.IngressEnabled(ingress.Enabled, ingress.IngressControllerClassName) {
 		return nil
 	}
 	rendered := dynamo.GenerateComponentIngress(v.ctx, newDCD.Name, newDCD.Namespace, dynamo.IngressSpec{IngressControllerClassName: ingress.IngressControllerClassName})
-	backend := rendered.Spec.Rules[0].HTTP.Paths[0].Backend.Service.Name
-	var oldService *corev1.Service
+	backend := &rendered.Spec.Rules[0].HTTP.Paths[0].Backend
+	var oldBackend *networkingv1.IngressBackend
 	if oldDCD != nil && oldDCD.Spec.Ingress != nil && componentdeployment.IngressEnabled(oldDCD.Spec.Ingress.Enabled, oldDCD.Spec.Ingress.IngressControllerClassName) {
 		oldIngress := dynamo.GenerateComponentIngress(v.ctx, oldDCD.Name, oldDCD.Namespace, dynamo.IngressSpec{IngressControllerClassName: oldDCD.Spec.Ingress.IngressControllerClassName})
-		oldService = &corev1.Service{Name: oldIngress.Spec.Rules[0].HTTP.Paths[0].Backend.Service.Name}
+		oldBackend = &oldIngress.Spec.Rules[0].HTTP.Paths[0].Backend
 	}
-	return v.validateService(&corev1.Service{Name: backend}, oldService, fldPath)
+	return v.validateIngressBackend(backend, oldBackend, fldPath)
 }

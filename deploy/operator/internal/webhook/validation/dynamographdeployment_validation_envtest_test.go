@@ -50,18 +50,19 @@ const sglangBackendFramework = "sglang"
 
 // dgdAdmissionTestCase keeps the native admission and post-admission expectations together.
 type dgdAdmissionTestCase struct {
-	name               string
-	deployment         runtime.Object
-	oldDeployment      runtime.Object
-	oldBeforeUpdate    runtime.Object
-	mutateRequest      func(*testing.T, map[string]any) // mutates the source-version request map
-	lwsEnabled         bool
-	groveDisabled      bool   // disables the configured Grove pathway
-	lpxDisabled        bool   // disables the LPX integration
-	checkpointOff      bool   // disables checkpoint creation and restore
-	seedWithoutWebhook bool   // seeds oldDeployment without validating it
-	terminating        bool   // deletes the seeded object so the update runs while it terminates
-	username           string // supplies the admission request identity
+	name                string
+	deployment          runtime.Object
+	oldDeployment       runtime.Object
+	oldBeforeUpdate     runtime.Object
+	mutateRequest       func(*testing.T, map[string]any) // mutates the source-version request map
+	lwsEnabled          bool
+	groveDisabled       bool   // disables the configured Grove pathway
+	lpxDisabled         bool   // disables the LPX integration
+	checkpointOff       bool   // disables checkpoint creation and restore
+	seedWithoutWebhook  bool   // seeds oldDeployment without validating it
+	seedWithoutMutation bool   // preserves pre-upgrade storage before mutation defaults
+	terminating         bool   // deletes the seeded object so the update runs while it terminates
+	username            string // supplies the admission request identity
 
 	wantSchemaErr          string
 	wantCELErr             string
@@ -89,6 +90,80 @@ func TestDynamoGraphDeploymentValidator_Validate(t *testing.T) {
 	tooLongComponentName := boundaryComponentName + "x"
 
 	tests := []dgdAdmissionTestCase{
+		{name: "Grove to Component checks the newly hashed worker selector", seedWithoutMutation: true,
+			oldDeployment: betaDGDForAdmission(func(dgd *nvidiacomv1beta1.DynamoGraphDeployment) {
+				dgd.Name = strings.Repeat("a", 48)
+				dgd.Spec.Components = dgd.Spec.Components[1:]
+				dgd.Annotations = map[string]string{consts.KubeAnnotationDynamoDiscoveryBackend: "etcd"}
+			}),
+			deployment: betaDGDForAdmission(func(dgd *nvidiacomv1beta1.DynamoGraphDeployment) {
+				dgd.Name = strings.Repeat("a", 48)
+				dgd.Spec.Components = dgd.Spec.Components[1:]
+				dgd.Annotations = map[string]string{consts.KubeAnnotationDynamoDiscoveryBackend: "etcd", consts.KubeAnnotationEnableGrove: "false"}
+			}), wantWebhookErrs: []string{selectorAdmissionError("spec.components[0].name", strings.Repeat("a", 48)+"-worker-00000000")}},
+		{name: "DisaggregatedSet to Component checks new LWS headless Services", seedWithoutMutation: true, lwsEnabled: true,
+			oldDeployment:   betaLegacyDSNameForAdmission("model.v1", true),
+			deployment:      betaLegacyDSNameForAdmission("model.v1", false),
+			wantWebhookErrs: []string{serviceNameAdmissionError("spec.components[0].name", "model.v1-prefill-00000000-0"), serviceNameAdmissionError("spec.components[1].name", "model.v1-decode-00000000-0")}},
+		{name: "Component to DisaggregatedSet checks the new headless Service", seedWithoutMutation: true, lwsEnabled: true,
+			oldDeployment:   betaLegacyDSNameForAdmission("7graph", false),
+			deployment:      betaLegacyDSNameForAdmission("7graph", true),
+			wantWebhookErrs: []string{serviceNameAdmissionError("metadata.name", "7graph")}},
+		{name: "Component to Grove checks the new headless Service", seedWithoutMutation: true,
+			oldDeployment: betaComponentDGDForAdmission(func(dgd *nvidiacomv1beta1.DynamoGraphDeployment) {
+				dgd.Name = "model.v1"
+				dgd.Spec.Components = dgd.Spec.Components[1:]
+				delete(dgd.Annotations, consts.KubeAnnotationWorkloadProvider)
+				dgd.Annotations[consts.KubeAnnotationDynamoDiscoveryBackend] = "etcd"
+			}),
+			deployment: betaDGDForAdmission(func(dgd *nvidiacomv1beta1.DynamoGraphDeployment) {
+				dgd.Name = "model.v1"
+				dgd.Spec.Components = dgd.Spec.Components[1:]
+				dgd.Annotations = map[string]string{consts.KubeAnnotationDynamoDiscoveryBackend: "etcd"}
+			}), wantWebhookErrs: []string{serviceNameAdmissionError("metadata.name", "model.v1-0")}},
+		{name: "beta can repair an unreadable old alpha compatibility view", seedWithoutWebhook: true,
+			oldDeployment: betaComponentDGDForAdmission(func(dgd *nvidiacomv1beta1.DynamoGraphDeployment) {
+				dgd.Annotations["nvidia.com/dgd-status"] = "{"
+			}), deployment: betaComponentDGDForAdmission(nil)},
+		{name: "unrenderable legacy graph defaults omitted replicas before label maintenance", seedWithoutMutation: true,
+			oldDeployment: betaComponentDGDForAdmission(func(dgd *nvidiacomv1beta1.DynamoGraphDeployment) {
+				dgd.Spec.Components = dgd.Spec.Components[1:]
+				dgd.Spec.Components[0].Replicas = nil
+				dgd.Spec.Components[0].PodTemplate.Spec.Containers[0].Env = []corev1.EnvVar{{Name: "DYN_DEPLOYMENT_CONFIG", Value: "{"}}
+			}),
+			deployment: betaComponentDGDForAdmission(func(dgd *nvidiacomv1beta1.DynamoGraphDeployment) {
+				dgd.Labels = map[string]string{"updated": "true"}
+				dgd.Spec.Components = dgd.Spec.Components[1:]
+				dgd.Spec.Components[0].Replicas = nil
+				dgd.Spec.Components[0].PodTemplate.Spec.Containers[0].Env = []corev1.EnvVar{{Name: "DYN_DEPLOYMENT_CONFIG", Value: "{"}}
+			})},
+		{name: "alpha malformed launch config uses the source services path", deployment: alphaDGDForAdmission(func(dgd *nvidiacomv1alpha1.DynamoGraphDeployment) {
+			dgd.Annotations = map[string]string{consts.KubeAnnotationEnableGrove: "false"}
+			dgd.Spec.Services["worker"].ExtraPodSpec.MainContainer.Env = []corev1.EnvVar{{Name: "DYN_DEPLOYMENT_CONFIG", Value: "{"}}
+		}), wantWebhookErrs: []string{"spec.services: Forbidden: cannot render component resources: parse deployment config from pod template 0: unexpected end of JSON input"}},
+		{name: "beta null frontend config is a field error", deployment: betaFrontendConfigDGDForAdmission(`{"frontend":null}`),
+			wantWebhookErrs: []string{`spec.components: Forbidden: cannot render component resources: deployment config entry "frontend" must be an object, not null`}},
+		{name: "beta can repair an old null frontend config", seedWithoutWebhook: true,
+			oldDeployment: betaFrontendConfigDGDForAdmission(`{"frontend":null}`), deployment: betaFrontendConfigDGDForAdmission(`{"frontend":{}}`)},
+		{name: "alpha null frontend config is a field error", deployment: alphaFrontendConfigDGDForAdmission(`{"frontend":null}`),
+			wantWebhookErrs: []string{`spec.services: Forbidden: cannot render component resources: deployment config entry "frontend" must be an object, not null`}},
+		{name: "alpha can repair an old null frontend config", seedWithoutWebhook: true,
+			oldDeployment: alphaFrontendConfigDGDForAdmission(`{"frontend":null}`), deployment: alphaFrontendConfigDGDForAdmission(`{"frontend":{}}`)},
+		{name: "alpha dotted mixed-case service key remains valid on Grove",
+			deployment: alphaDGDForAdmissionWithServiceNames("Qwen3-0.6B")},
+		{name: "alpha dotted component key cannot create an invalid beta child spec", groveDisabled: true,
+			deployment:      alphaDGDForAdmissionWithServiceNames("Qwen3-0.6B"),
+			wantWebhookErrs: []string{fmt.Sprintf("spec.services[Qwen3-0.6B]: Invalid value: %q: generated DynamoComponentDeployment spec.name is invalid: %s", "Qwen3-0.6B", strings.Join(k8svalidation.IsDNS1123Label("qwen3-0.6b"), "; "))}},
+		{name: "alpha long service key is checked as an original component label", groveDisabled: true, lwsEnabled: true,
+			deployment: alphaDGDForAdmission(func(dgd *nvidiacomv1alpha1.DynamoGraphDeployment) {
+				worker := dgd.Spec.Services["worker"]
+				worker.Multinode = &nvidiacomv1alpha1.MultinodeSpec{NodeCount: 2}
+				dgd.Spec.Services = map[string]*nvidiacomv1alpha1.DynamoComponentDeploymentSharedSpec{strings.Repeat("a", 64): worker}
+				dgd.Annotations = map[string]string{consts.KubeAnnotationDynamoDiscoveryBackend: "etcd"}
+			}), wantWebhookErrs: []string{fmt.Sprintf("spec.services[%s]: Invalid value: %q: generated DynamoComponentDeployment spec.name is invalid: %s", strings.Repeat("a", 64), strings.Repeat("a", 64), strings.Join(append(k8svalidation.IsDNS1123Label(strings.Repeat("a", 64)), k8svalidation.IsValidLabelValue(strings.Repeat("a", 64))...), "; ")), fmt.Sprintf("spec.services[%s]: Invalid value: %q: generated nvidia.com/dynamo-component label value is invalid: %s", strings.Repeat("a", 64), strings.Repeat("a", 64), strings.Join(k8svalidation.IsValidLabelValue(strings.Repeat("a", 64)), "; "))}},
+		{name: "alpha Unicode case-folding cannot hide an invalid component label", groveDisabled: true,
+			deployment:      alphaDGDForAdmissionWithServiceNames("K"),
+			wantWebhookErrs: []string{fmt.Sprintf("spec.services[K]: Invalid value: %q: generated DynamoComponentDeployment spec.name is invalid: %s", "K", strings.Join(k8svalidation.IsValidLabelValue("K"), "; ")), "spec.services[K]: Invalid value: \"K\": generated nvidia.com/dynamo-component label value is invalid: " + strings.Join(k8svalidation.IsValidLabelValue("K"), "; ")}},
 		{name: "lowering failure cannot silently bypass naming admission", deployment: betaComponentDGDForAdmission(func(dgd *nvidiacomv1beta1.DynamoGraphDeployment) {
 			dgd.Name = strings.Repeat("a", 48)
 			dgd.Spec.Components = dgd.Spec.Components[1:]
@@ -179,7 +254,7 @@ func TestDynamoGraphDeploymentValidator_Validate(t *testing.T) {
 				dgd.Spec.Services = map[string]*nvidiacomv1alpha1.DynamoComponentDeploymentSharedSpec{"worker": worker}
 				worker.Multinode = &nvidiacomv1alpha1.MultinodeSpec{NodeCount: 2}
 				worker.Ingress = &nvidiacomv1alpha1.IngressSpec{Enabled: true, Host: "worker.example.com", IngressControllerClassName: new("nginx")}
-			}), wantWebhookErrs: []string{serviceNameAdmissionError("spec.services[worker].ingress", strings.Repeat("a", 56)+"-worker-00000000")}},
+			}), wantWebhookErrs: []string{ingressBackendAdmissionError("spec.services[worker].ingress", strings.Repeat("a", 56)+"-worker-00000000")}},
 
 		{name: "reported long frontend identity is rejected", deployment: betaDGDForAdmission(func(dgd *nvidiacomv1beta1.DynamoGraphDeployment) {
 			dgd.Name = "dsv41-flash-vllm-gb200-disagg-agentic-production-us-east-1"
@@ -1063,7 +1138,7 @@ func TestDynamoGraphDeploymentValidator_Validate(t *testing.T) {
 		{
 			name:            "v1alpha1 empty service map key is rejected",
 			deployment:      alphaDGDForAdmissionWithServiceNames(""),
-			wantWebhookErrs: []string{selectorAdmissionError("spec.services[]", "test-graph-"), serviceNameAdmissionError("spec.services[]", "test-graph-"), "spec.services[]: Invalid value: \"\": component name is invalid: " + strings.Join(k8svalidation.IsDNS1123Label(""), "; ")},
+			wantWebhookErrs: []string{selectorAdmissionError("spec.services[]", "test-graph-"), serviceNameAdmissionError("spec.services[]", "test-graph-"), "spec.services[]: Required value: component name must not be empty"},
 		},
 		{
 			name: "v1beta1 component names are unique case-insensitively in CEL",
@@ -4415,20 +4490,21 @@ func TestDynamoGraphDeploymentValidator_Validate(t *testing.T) {
 			t.Log("Assemble the admission scenario from the table entry")
 			gates := features.Gates{Checkpoint: !tt.checkpointOff, Grove: !tt.groveDisabled, LPX: !tt.lpxDisabled, LWS: tt.lwsEnabled}
 			test := admissionTestCase{
-				object:             tt.deployment,
-				oldObject:          tt.oldDeployment,
-				oldBeforeUpdate:    tt.oldBeforeUpdate,
-				mutateObject:       tt.mutateRequest,
-				gates:              gates,
-				seedWithoutWebhook: tt.seedWithoutWebhook,
-				terminating:        tt.terminating,
-				username:           tt.username,
-				wantSchemaError:    tt.wantSchemaErr,
-				wantCELError:       tt.wantCELErr,
-				wantAdmissionErrs:  tt.wantAdmissionErrs,
-				wantWebhookErrors:  tt.wantWebhookErrs,
-				wantWarnings:       tt.wantWarnings,
-				notWantError:       tt.notWantErr,
+				object:              tt.deployment,
+				oldObject:           tt.oldDeployment,
+				oldBeforeUpdate:     tt.oldBeforeUpdate,
+				mutateObject:        tt.mutateRequest,
+				gates:               gates,
+				seedWithoutWebhook:  tt.seedWithoutWebhook,
+				seedWithoutMutation: tt.seedWithoutMutation,
+				terminating:         tt.terminating,
+				username:            tt.username,
+				wantSchemaError:     tt.wantSchemaErr,
+				wantCELError:        tt.wantCELErr,
+				wantAdmissionErrs:   tt.wantAdmissionErrs,
+				wantWebhookErrors:   tt.wantWebhookErrs,
+				wantWarnings:        tt.wantWarnings,
+				notWantError:        tt.notWantErr,
 			}
 			if tt.oldDeployment != nil {
 				if test.oldBeforeUpdate == nil {
@@ -5219,4 +5295,30 @@ func multinodeSidecarDCDForAdmission(t *testing.T, backend string, alpha, roles,
 		return spoke
 	}
 	return dcd
+}
+
+// betaLegacyDSNameForAdmission builds a providerless graph before durable provider adoption.
+func betaLegacyDSNameForAdmission(name string, enabled bool) *nvidiacomv1beta1.DynamoGraphDeployment {
+	dgd := betaDSNameForAdmission(name)
+	delete(dgd.Annotations, consts.KubeAnnotationWorkloadProvider)
+	dgd.Annotations[consts.KubeAnnotationEnableGrove] = "false"
+	dgd.Annotations[consts.KubeAnnotationEnableDisaggregatedSet] = fmt.Sprint(enabled)
+	return dgd
+}
+
+func betaFrontendConfigDGDForAdmission(config string) *nvidiacomv1beta1.DynamoGraphDeployment {
+	return betaComponentDGDForAdmission(func(dgd *nvidiacomv1beta1.DynamoGraphDeployment) {
+		dgd.Spec.Components = dgd.Spec.Components[:1]
+		dgd.Spec.Components[0].PodTemplate.Spec.Containers[0].Env = []corev1.EnvVar{{Name: "DYN_DEPLOYMENT_CONFIG", Value: config}}
+	})
+}
+
+func alphaFrontendConfigDGDForAdmission(config string) *nvidiacomv1alpha1.DynamoGraphDeployment {
+	return alphaDGDForAdmission(func(dgd *nvidiacomv1alpha1.DynamoGraphDeployment) {
+		dgd.Annotations = map[string]string{consts.KubeAnnotationEnableGrove: "false"}
+		frontend := dgd.Spec.Services["worker"]
+		frontend.ComponentType = consts.ComponentTypeFrontend
+		frontend.ExtraPodSpec.MainContainer.Env = []corev1.EnvVar{{Name: "DYN_DEPLOYMENT_CONFIG", Value: config}}
+		dgd.Spec.Services = map[string]*nvidiacomv1alpha1.DynamoComponentDeploymentSharedSpec{"frontend": frontend}
+	})
 }

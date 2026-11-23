@@ -73,23 +73,36 @@ func hasDynamoComponentDeploymentV1alpha1CompatibilityFields(
 		spec.Failover != nil
 }
 
-// controlledByDynamoGraphDeployment identifies DGD controller ownership, not caller authorization.
+// dynamoGraphDeploymentController returns the controlling DGD reference, or nil for another owner.
 // dcd must be non-nil.
-func controlledByDynamoGraphDeployment(dcd metav1.Object) bool {
+func dynamoGraphDeploymentController(dcd metav1.Object) *metav1.OwnerReference {
 	owner := metav1.GetControllerOf(dcd)
 	if owner == nil || owner.Kind != nvidiacomv1beta1.DynamoGraphDeploymentGVK.Kind {
-		return false
+		return nil
 	}
 	gv, err := schema.ParseGroupVersion(owner.APIVersion)
-	return err == nil && gv.Group == nvidiacomv1beta1.GroupVersion.Group
+	if err != nil || gv.Group != nvidiacomv1beta1.GroupVersion.Group {
+		return nil
+	}
+	return owner
 }
 
 // operatorOwnedDCDNameExemption permits legacy child identities only for authenticated operator writes.
 // ctx and dcd must be non-nil. An empty operatorPrincipal disables the exemption.
 func operatorOwnedDCDNameExemption(ctx context.Context, dcd metav1.Object, operatorPrincipal string) bool {
-	if operatorPrincipal == "" || !controlledByDynamoGraphDeployment(dcd) {
+	if operatorPrincipal == "" || dynamoGraphDeploymentController(dcd) == nil {
 		return false
 	}
 	request, err := admission.RequestFromContext(ctx)
 	return err == nil && request.UserInfo.Username == operatorPrincipal
+}
+
+// sameDynamoGraphDeploymentController compares controller identity across API versions.
+// newDCD and oldDCD must be non-nil; an absent DGD controller is a supported state.
+func sameDynamoGraphDeploymentController(newDCD, oldDCD metav1.Object) bool {
+	newOwner, oldOwner := dynamoGraphDeploymentController(newDCD), dynamoGraphDeploymentController(oldDCD)
+	if newOwner == nil || oldOwner == nil {
+		return newOwner == nil && oldOwner == nil
+	}
+	return newOwner.Name == oldOwner.Name && newOwner.UID == oldOwner.UID
 }

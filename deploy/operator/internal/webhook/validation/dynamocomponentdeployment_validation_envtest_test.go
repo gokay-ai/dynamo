@@ -34,6 +34,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
+	k8svalidation "k8s.io/apimachinery/pkg/util/validation"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	k8sptr "k8s.io/utils/ptr"
 	apixv1alpha1 "sigs.k8s.io/gateway-api-inference-extension/apix/config/v1alpha1"
@@ -72,23 +73,36 @@ func TestDynamoComponentDeploymentValidator_Validate(t *testing.T) {
 	betaIngressStandalone.OwnerReferences = nil
 
 	type dcdAdmissionTestCase struct {
-		name               string
-		username           string
-		lwsEnabled         bool
-		deployment         runtime.Object
-		oldDeployment      runtime.Object
-		oldBeforeUpdate    runtime.Object
-		checkpointOff      bool
-		seedWithoutWebhook bool
-		wantSchemaErr      string
-		wantCELErr         string
-		wantWebhookErrs    []string
-		wantWarnings       []string
-		wantOriginVersion  *string
-		wantPodAnnotations map[string]string
-		wantRoleReplicas   map[string]int32
+		name                string
+		username            string
+		lwsEnabled          bool
+		deployment          runtime.Object
+		oldDeployment       runtime.Object
+		oldBeforeUpdate     runtime.Object
+		checkpointOff       bool
+		seedWithoutMutation bool
+		seedWithoutWebhook  bool
+		wantSchemaErr       string
+		wantCELErr          string
+		wantWebhookErrs     []string
+		wantWarnings        []string
+		wantOriginVersion   *string
+		wantPodAnnotations  map[string]string
+		wantRoleReplicas    map[string]int32
 	}
 	tests := []dcdAdmissionTestCase{
+		{name: "beta child component name schema rejects dots", deployment: betaDCDForAdmission(func(dcd *nvidiacomv1beta1.DynamoComponentDeployment) {
+			dcd.Spec.ComponentName = "Qwen3-0.6B"
+		}), wantSchemaErr: `spec.name: Invalid value: "Qwen3-0.6B": spec.name in body should match '^[A-Za-z0-9]([-A-Za-z0-9]*[A-Za-z0-9])?$'`},
+		{name: "beta repair can remove malformed alpha preservation", seedWithoutMutation: true,
+			oldDeployment: betaDCDForAdmission(func(dcd *nvidiacomv1beta1.DynamoComponentDeployment) {
+				dcd.Annotations = map[string]string{"nvidia.com/dcd-spec": "{"}
+			}), deployment: betaDCDForAdmission(nil)},
+		{name: "frontend Ingress reports distinct generated resource failures", deployment: alphaDCDForAdmission(func(dcd *nvidiacomv1alpha1.DynamoComponentDeployment) {
+			dcd.Name = "7frontend"
+			dcd.Spec.ComponentType = consts.ComponentTypeFrontend
+			dcd.Spec.Ingress = &nvidiacomv1alpha1.IngressSpec{Enabled: true, Host: "frontend.example.com", IngressControllerClassName: new("nginx")}
+		}), wantWebhookErrs: []string{serviceNameAdmissionError("metadata.name", "7frontend"), ingressBackendAdmissionError("spec.ingress", "7frontend")}},
 		{name: "frontends keep their Service under etcd discovery", deployment: betaDCDForAdmission(func(dcd *nvidiacomv1beta1.DynamoComponentDeployment) {
 			dcd.Name = "7frontend"
 			dcd.Spec.ComponentType = nvidiacomv1beta1.ComponentTypeFrontend
@@ -96,9 +110,9 @@ func TestDynamoComponentDeploymentValidator_Validate(t *testing.T) {
 		}), wantWebhookErrs: []string{serviceNameAdmissionError("metadata.name", "7frontend")}},
 
 		{name: "alpha Ingress names retain the authenticated operator exemption", username: admissionOperatorPrincipal, deployment: alphaOwnedDCDNameForAdmission()},
-		{name: "a forged owner cannot bypass alpha Ingress names", deployment: alphaOwnedDCDNameForAdmission(), wantWebhookErrs: []string{serviceNameAdmissionError("metadata.name", "7b")}},
-		{name: "removing a graph owner rechecks an exempt alpha Ingress name", username: admissionOperatorPrincipal, oldDeployment: alphaIngressChild, deployment: alphaIngressStandalone, wantWebhookErrs: []string{serviceNameAdmissionError("metadata.name", "7b")}},
-		{name: "removing a graph owner rechecks a preserved alpha Ingress name", username: admissionOperatorPrincipal, oldDeployment: betaIngressChild, deployment: betaIngressStandalone, wantWebhookErrs: []string{serviceNameAdmissionError("metadata.name", "7b")}},
+		{name: "a forged owner cannot bypass alpha Ingress names", deployment: alphaOwnedDCDNameForAdmission(), wantWebhookErrs: []string{ingressBackendAdmissionError("spec.ingress", "7b")}},
+		{name: "removing a graph owner rechecks an exempt alpha Ingress name", username: admissionOperatorPrincipal, oldDeployment: alphaIngressChild, deployment: alphaIngressStandalone, wantWebhookErrs: []string{ingressBackendAdmissionError("spec.ingress", "7b")}},
+		{name: "removing a graph owner rechecks a preserved alpha Ingress name", username: admissionOperatorPrincipal, oldDeployment: betaIngressChild, deployment: betaIngressStandalone, wantWebhookErrs: []string{ingressBackendAdmissionError("spec.ingress", "7b")}},
 
 		{name: "digit-leading frontend Service is rejected", deployment: betaDCDForAdmission(func(dcd *nvidiacomv1beta1.DynamoComponentDeployment) {
 			dcd.Name = "70b-llama-production"
@@ -2194,6 +2208,65 @@ func TestDynamoComponentDeploymentValidator_Validate(t *testing.T) {
 		}
 	}
 
+	t.Log("Check alpha component labels on both Deployment and LWS paths")
+	longComponentLabel := strings.Repeat("a", 64)
+	labelErrors := map[string][]string{
+		longComponentLabel: {fmt.Sprintf("spec.serviceName: Invalid value: %q: generated %s label value is invalid: %s", longComponentLabel, consts.KubeLabelDynamoComponent, strings.Join(k8svalidation.IsValidLabelValue(longComponentLabel), "; "))},
+		"Kelvin":           {fmt.Sprintf("spec.serviceName: Invalid value: %q: generated %s label value is invalid: %s", "Kelvin", consts.KubeLabelDynamoComponent, strings.Join(k8svalidation.IsValidLabelValue("Kelvin"), "; "))},
+	}
+	for _, multinode := range []*nvidiacomv1alpha1.MultinodeSpec{nil, {NodeCount: 2}} {
+		for _, name := range []string{longComponentLabel, "Kelvin", "Qwen3-0.6B"} {
+			object := alphaDCDForAdmission(func(dcd *nvidiacomv1alpha1.DynamoComponentDeployment) {
+				dcd.Spec.ServiceName = name
+				dcd.Spec.Multinode = multinode.DeepCopy()
+			})
+			tests = append(tests, dcdAdmissionTestCase{name: fmt.Sprintf("alpha component label %q LWS=%t", name, multinode != nil), deployment: object, lwsEnabled: multinode != nil, wantWebhookErrs: labelErrors[name]})
+		}
+	}
+
+	t.Log("Revalidate exempt identities when a controller UID or name changes")
+	for _, change := range []struct {
+		name  string
+		owner metav1.OwnerReference
+	}{
+		{"UID", metav1.OwnerReference{APIVersion: nvidiacomv1beta1.GroupVersion.String(), Kind: "DynamoGraphDeployment", Name: "graph", UID: "replacement-uid", Controller: new(true)}},
+		{"name", metav1.OwnerReference{APIVersion: nvidiacomv1beta1.GroupVersion.String(), Kind: "DynamoGraphDeployment", Name: "replacement", UID: "graph-uid", Controller: new(true)}},
+	} {
+		old := betaDCDForAdmission(func(dcd *nvidiacomv1beta1.DynamoComponentDeployment) {
+			dcd.Name = strings.Repeat("a", 64)
+			dcd.OwnerReferences = []metav1.OwnerReference{{APIVersion: nvidiacomv1beta1.GroupVersion.String(), Kind: "DynamoGraphDeployment", Name: "graph", UID: "graph-uid", Controller: new(true)}}
+		})
+		updated := old.DeepCopy()
+		updated.OwnerReferences[0] = change.owner
+		tests = append(tests, dcdAdmissionTestCase{name: "replacement graph " + change.name + " rechecks metadata identity", seedWithoutWebhook: true, oldDeployment: old, deployment: updated, wantWebhookErrs: []string{selectorAdmissionError("metadata.name", old.Name), serviceNameAdmissionError("metadata.name", old.Name)}})
+
+		oldIngress := alphaOwnedDCDNameForAdmission()
+		newIngress := oldIngress.DeepCopy()
+		newIngress.OwnerReferences[0] = change.owner
+		tests = append(tests, dcdAdmissionTestCase{name: "replacement graph " + change.name + " rechecks alpha Ingress", seedWithoutWebhook: true, oldDeployment: oldIngress, deployment: newIngress, wantWebhookErrs: []string{ingressBackendAdmissionError("spec.ingress", "7b")}})
+	}
+
+	t.Log("Keep owner API-version changes separate from controller identity changes")
+	oldControllerVersion := betaDCDForAdmission(func(dcd *nvidiacomv1beta1.DynamoComponentDeployment) {
+		dcd.Name = strings.Repeat("a", 64)
+		dcd.OwnerReferences = []metav1.OwnerReference{{APIVersion: nvidiacomv1alpha1.GroupVersion.String(), Kind: "DynamoGraphDeployment", Name: "graph", UID: "graph-uid", Controller: new(true)}}
+	})
+	newControllerVersion := oldControllerVersion.DeepCopy()
+	newControllerVersion.OwnerReferences[0].APIVersion = nvidiacomv1beta1.GroupVersion.String()
+	tests = append(tests, dcdAdmissionTestCase{name: "same graph UID with new API version preserves legacy identity", seedWithoutWebhook: true, oldDeployment: oldControllerVersion, deployment: newControllerVersion})
+
+	t.Log("Preserve unchanged alpha label failures but recheck them after ownership changes")
+	legacyLabel := alphaDCDForAdmission(func(dcd *nvidiacomv1alpha1.DynamoComponentDeployment) {
+		dcd.Spec.ServiceName = strings.Repeat("a", 64)
+		dcd.OwnerReferences = []metav1.OwnerReference{{APIVersion: nvidiacomv1beta1.GroupVersion.String(), Kind: "DynamoGraphDeployment", Name: "graph", UID: "graph-uid", Controller: new(true)}}
+	})
+	labelMaintenance := legacyLabel.DeepCopy()
+	labelMaintenance.Labels = map[string]string{"updated": "true"}
+	tests = append(tests, dcdAdmissionTestCase{name: "legacy alpha component label permits maintenance", seedWithoutWebhook: true, oldDeployment: legacyLabel, deployment: labelMaintenance})
+	labelReplacement := legacyLabel.DeepCopy()
+	labelReplacement.OwnerReferences[0].UID = "replacement-uid"
+	tests = append(tests, dcdAdmissionTestCase{name: "replacement graph UID rechecks alpha component label", seedWithoutWebhook: true, oldDeployment: legacyLabel.DeepCopy(), deployment: labelReplacement, wantWebhookErrs: []string{fmt.Sprintf("spec.serviceName: Invalid value: %q: generated %s label value is invalid: %s", labelReplacement.Spec.ServiceName, consts.KubeLabelDynamoComponent, strings.Join(k8svalidation.IsValidLabelValue(labelReplacement.Spec.ServiceName), "; "))}})
+
 	t.Log("Add complete-probe cases to the admission table for both API versions")
 	for _, placement := range []string{"main", "frontend sidecar", "role"} {
 		beta := betaDCDForAdmission(nil)
@@ -2242,16 +2315,17 @@ func TestDynamoComponentDeploymentValidator_Validate(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			gates := features.Gates{Checkpoint: !tt.checkpointOff, LWS: tt.lwsEnabled}
 			test := admissionTestCase{
-				object:             tt.deployment,
-				username:           tt.username,
-				oldObject:          tt.oldDeployment,
-				oldBeforeUpdate:    tt.oldBeforeUpdate,
-				gates:              gates,
-				seedWithoutWebhook: tt.seedWithoutWebhook,
-				wantSchemaError:    tt.wantSchemaErr,
-				wantCELError:       tt.wantCELErr,
-				wantWebhookErrors:  tt.wantWebhookErrs,
-				wantWarnings:       tt.wantWarnings,
+				object:              tt.deployment,
+				username:            tt.username,
+				oldObject:           tt.oldDeployment,
+				oldBeforeUpdate:     tt.oldBeforeUpdate,
+				gates:               gates,
+				seedWithoutWebhook:  tt.seedWithoutWebhook,
+				seedWithoutMutation: tt.seedWithoutMutation,
+				wantSchemaError:     tt.wantSchemaErr,
+				wantCELError:        tt.wantCELErr,
+				wantWebhookErrors:   tt.wantWebhookErrs,
+				wantWarnings:        tt.wantWarnings,
 			}
 			if tt.checkpointOff && tt.oldDeployment != nil {
 				seedGates := gates

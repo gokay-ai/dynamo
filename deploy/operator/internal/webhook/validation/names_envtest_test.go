@@ -15,6 +15,7 @@ import (
 	webhooksetup "github.com/ai-dynamo/dynamo/deploy/operator/internal/webhook/setup"
 	"github.com/stretchr/testify/require"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	k8svalidation "k8s.io/apimachinery/pkg/util/validation"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -22,6 +23,14 @@ import (
 
 func serviceNameAdmissionError(path, name string) string {
 	message := fmt.Sprintf("%s: Invalid value: %q: generated Service name is invalid: %s; choose a shorter name starting with a letter", path, name, strings.Join(k8svalidation.IsDNS1035Label(name), "; "))
+	if strings.HasSuffix(name, "-00000000") || strings.HasSuffix(name, "-00000000-0") {
+		message += "; worker hash is shown as zeros"
+	}
+	return message
+}
+
+func ingressBackendAdmissionError(path, name string) string {
+	message := fmt.Sprintf("%s: Invalid value: %q: generated Ingress backend Service name is invalid: %s; choose a shorter name starting with a letter", path, name, strings.Join(k8svalidation.IsDNS1035Label(name), "; "))
 	if strings.HasSuffix(name, "-00000000") {
 		message += "; worker hash is shown as zeros"
 	}
@@ -78,13 +87,26 @@ func TestAdmissionUsesOperatorDiscoveryDefault(t *testing.T) {
 			dgd := betaComponentDGDForAdmission(nil)
 			dgd.Name, dgd.Namespace = "7graph", env.Namespace()
 			dgd.Spec.Components = dgd.Spec.Components[1:]
-			for _, object := range []client.Object{dcd, dgd} {
-				err := env.Client().Create(t.Context(), object)
+			for _, test := range []struct {
+				object      client.Object
+				field, name string
+			}{
+				{object: dcd, field: "metadata.name", name: "7worker"},
+				{object: dgd, field: "spec.components[0].name", name: "7graph-worker-00000000"},
+			} {
+				err := env.Client().Create(t.Context(), test.object)
 				if backend == configv1alpha1.DiscoveryBackendEtcd {
 					require.NoError(t, err)
 				} else {
 					require.True(t, apierrors.IsInvalid(err), "%v", err)
-					require.Contains(t, err.Error(), "generated Service name is invalid")
+					var statusErr *apierrors.StatusError
+					require.ErrorAs(t, err, &statusErr)
+					require.NotNil(t, statusErr.ErrStatus.Details)
+					require.Equal(t, []metav1.StatusCause{{
+						Type:    metav1.CauseTypeFieldValueInvalid,
+						Field:   test.field,
+						Message: strings.TrimPrefix(serviceNameAdmissionError(test.field, test.name), test.field+": "),
+					}}, statusErr.ErrStatus.Details.Causes)
 				}
 			}
 		})
