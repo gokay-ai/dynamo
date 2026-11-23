@@ -31,6 +31,7 @@ use super::{
 use crate::{
     discovery::{SystemOneExecutionSelection, SystemOneSelectionError},
     generate_format::{Bound, ClientRequest, GenerateExchange, Worker},
+    model_card::ScoringBackend,
     protocols::{
         Annotated,
         common::{
@@ -39,7 +40,7 @@ use crate::{
         },
         response_merge::PREFILL_OUTPUT_ANNOTATION,
         systemone::{
-            ScoringBackend, VllmScoreCollector, build_native_score_request, causal_scoring_request,
+            VllmScoreCollector, build_native_score_request, causal_scoring_request,
             parse_candidate_scores,
         },
     },
