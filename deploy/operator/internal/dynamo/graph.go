@@ -710,10 +710,16 @@ func updateDynDeploymentConfigBytes(rawConfig []byte, serviceName string, newPor
 		return nil, err
 	}
 	if frontend, ok := config[serviceName]; ok {
+		if frontend == nil {
+			return nil, fmt.Errorf("deployment config entry %q must be an object, not null", serviceName)
+		}
 		frontend["port"] = newPort
 	} else {
 		for name, frontend := range config {
 			if strings.EqualFold(name, commonconsts.ComponentTypeFrontend) {
+				if frontend == nil {
+					return nil, fmt.Errorf("deployment config entry %q must be an object, not null", name)
+				}
 				frontend["port"] = newPort
 				break
 			}

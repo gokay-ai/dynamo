@@ -9831,6 +9831,21 @@ func TestGenerateComponentIngressResources_NormalizeBackendServiceName(t *testin
 	assert.Equal(t, "model-qwen3-0-6b", virtualService.Spec.Http[0].Route[0].Destination.Host)
 }
 
+func TestUpdateDynDeploymentConfigBytesRejectsNullFrontend(t *testing.T) {
+	for _, test := range []struct {
+		name, serviceName, rawConfig, wantError string
+	}{
+		{name: "exact frontend entry", serviceName: "frontend", rawConfig: `{"frontend":null}`, wantError: `deployment config entry "frontend" must be an object, not null`},
+		{name: "renamed frontend fallback", serviceName: "router", rawConfig: `{"Frontend":null}`, wantError: `deployment config entry "Frontend" must be an object, not null`},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Log("Reject a selected null frontend configuration with an error instead of a panic")
+			_, err := updateDynDeploymentConfigBytes([]byte(test.rawConfig), test.serviceName, 8080)
+			require.EqualError(t, err, test.wantError)
+		})
+	}
+}
+
 func TestApplyDynDeploymentConfig_FallsBackToFrontendConfigKeyForRenamedFrontend(t *testing.T) {
 	dcd := &v1beta1.DynamoComponentDeployment{
 		Name: "router", Namespace: "default",
