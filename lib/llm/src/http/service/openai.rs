@@ -45,7 +45,7 @@ use super::{
         monitor_for_disconnects_with_activity_and_error_signal,
         monitor_for_disconnects_with_error_signal, monitor_for_responses_disconnects,
     },
-    error::{ContextLengthDetails, HttpError, Protocol, invalid_argument, public_message_for},
+    error::{ContextLengthDetails, Protocol, invalid_argument, public_message_for},
     metadata::{attach_x_request_id, extract_metadata_from_http},
     metrics::{
         CancellationLabels, Endpoint, ErrorType, EventConverter,
@@ -135,9 +135,9 @@ static FORCE_INCLUDE_USAGE: LazyLock<bool> =
 static LEGACY_REASONING_REPLAY: LazyLock<bool> =
     LazyLock::new(|| env_is_truthy(env_llm::DYN_RESPONSES_LEGACY_REASONING_REPLAY));
 
-use super::error::{
-    BackendStatusAction, ClientErrorAction, SanitizedError, find_canonical_error_in_chain,
-    http_action_for_error, overload_status_code,
+use dynamo_error::http::{
+    BackendStatusAction, ClientErrorAction, HttpError, SanitizedError,
+    find_canonical_error_in_chain, http_action_for_error, overload_status_code,
 };
 
 pub(super) fn rl_router(
